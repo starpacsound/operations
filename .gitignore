@@ -1,0 +1,9 @@
+node_modules/
+.firebase/
+*-debug.log
+firebase-debug.*.log
+.DS_Store
+__pycache__/
+# never commit service-account keys
+*serviceAccount*.json
+sa.json

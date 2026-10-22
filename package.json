@@ -1,0 +1,22 @@
+{
+  "name": "star-showbase",
+  "private": true,
+  "version": "5.1.0",
+  "description": "Showbase / STAR Inventory asset system - Firebase + Google Sheets backup",
+  "type": "module",
+  "scripts": {
+    "serve": "npx --yes http-server public -p 8765 -c-1",
+    "test:rules": "firebase emulators:exec --only firestore --project demo-showbase \"node tests/rules.test.mjs\"",
+    "test:e2e": "python3 tests/e2e_demo.py",
+    "test:shows": "node tests/shows_sync.test.cjs",
+    "test:bundles": "node tests/bundles.test.cjs",
+    "test:people": "node tests/people.test.cjs",
+    "test:backup": "node tests/backup_sheet.test.cjs",
+    "deploy:rules": "firebase deploy --only firestore:rules,firestore:indexes"
+  },
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "^3.0.4",
+    "firebase": "^10.12.5",
+    "firebase-tools": "^13.29.0"
+  }
+}

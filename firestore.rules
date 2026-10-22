@@ -1,0 +1,403 @@
+rules_version = '2';
+
+// =====================================================================
+// Showbase / STAR Inventory v5.0 - Firestore security rules
+// These are what actually enforce access. The app only hides buttons.
+//
+// Permission model (see public/js/perms.js):
+//   users/{uid}.role                 Admin | Co-Admin | Member   (Admin = full access)
+//   users/{uid}.perm.<module>.<feat> feature-level permissions
+//   viewCols / editCols / viewCats / editCats   column + row scope
+//
+// WARNING: deploying these locks out any client without a signed-in, approved account,
+// including the old STAR Inventory page that has no login.
+// v3 profiles (tabs/can) have no `perm` map: re-apply the role templates once after upgrading.
+// =====================================================================
+service cloud.firestore {
+  match /databases/{db}/documents {
+
+    // ---------- who is calling ----------
+    function signedIn()   { return request.auth != null; }
+    function uid()        { return request.auth.uid; }
+    function myPath()     { return /databases/$(db)/documents/users/$(request.auth.uid); }
+    function me()         { return get(myPath()).data; }
+    function hasProfile() { return signedIn() && exists(myPath()); }
+    // An account with a temporary password (Admin reset) can't touch any data until its owner sets a new one.
+    // Email must be verified (Firebase sets email_verified once the link is clicked; the host's username
+    // login is marked verified by the setup script). Unverified accounts can't touch any data.
+    function verified()   { return signedIn() && request.auth.token.email_verified == true; }
+    function active()     { return hasProfile() && verified() && me().status == 'active' && me().get('mustChangePassword', false) != true; }
+    function isAdmin()    { return active() && me().role == 'Admin'; }
+    function isPrimary()  { return isAdmin() && me().get('isPrimary', false) == true; }
+    function can(m, f)    { return isAdmin() || (active() && me().get('perm', {}).get(m, {}).get(f, false) == true); }
+
+    // ---------- row / column scope ([] = all categories) ----------
+    function canSeeCat(cat)  { return me().get('viewCats', []).size() == 0 || cat in me().get('viewCats', []); }
+    function canEditCat(cat) { return me().get('editCats', []).size() == 0 || cat in me().get('editCats', []); }
+    function changed()       { return request.resource.data.diff(resource.data).affectedKeys(); }
+    function myEditCols()    { return me().get('editCols', []).concat(['updatedAt', 'updatedBy']); }
+
+    // A status move by the document's owner: from -> to, touching only the given keys.
+    function move(from, to, keys) {
+      return resource.data.status == from && request.resource.data.status == to && changed().hasOnly(keys);
+    }
+
+    // ---------- workflow writes ----------
+    // Maintenance, loans and discrepancy reviews may move an asset (condition, qty, place, serial, remarks)
+    // even when the person has no column edit rights. The asset update must name the workflow document
+    // (wfCol / wfRef), that document must exist after the same commit, and the caller needs the
+    // matching permission. wfStep changes on every step, so it always shows up as changed.
+    function wfKeys() {
+      return ['condition', 'qty', 'itemSpace', 'itemLocation', 'serialNo', 'remarks',
+              'wfCol', 'wfRef', 'wfStep', 'updatedAt', 'updatedBy'];
+    }
+    function wfCap(col) {
+      return (col == 'maintenance' && (can('maintenance', 'verify') || can('maintenance', 'repair')))
+          || (col == 'loans' && (can('loans', 'manage') || can('loans', 'catalogue')))
+          || (col == 'discrepancies' && can('check', 'review'));
+    }
+    function isWorkflowWrite() {
+      let d = request.resource.data;
+      return active()
+        && changed().hasOnly(wfKeys())
+        && changed().hasAll(['wfStep'])
+        && d.wfCol in ['maintenance', 'loans', 'discrepancies']
+        && wfCap(d.wfCol)
+        && existsAfter(/databases/$(db)/documents/$(d.wfCol)/$(d.wfRef));
+    }
+
+    // ---------- settings ----------
+    match /settings/app {
+      allow read: if true;                       // the sign-in screen shows the name + logo
+      allow write: if isAdmin();
+    }
+    match /settings/roles {
+      allow read: if active();
+      allow write: if isAdmin();
+    }
+    // Shared venue list for Show Sign-Out. People who sign gear out may only ADD venues.
+    match /settings/venues {
+      allow read: if active();
+      allow write: if isAdmin()
+        || ((can('shows', 'signOut') || can('avail', 'book'))
+            && request.resource.data.keys().hasOnly(['list', 'colors'])
+            && request.resource.data.list is list
+            && request.resource.data.list.size() <= 500
+            && request.resource.data.list.hasAll(resource == null ? [] : resource.data.get('list', []))
+            // colours: may only add a colour for a venue that has none; existing colours are admin-only
+            && request.resource.data.get('colors', {}) is map
+            && request.resource.data.get('colors', {}).size() <= 600
+            && request.resource.data.get('colors', {}).diff(resource == null ? {} : resource.data.get('colors', {})).changedKeys().size() == 0
+            && request.resource.data.get('colors', {}).diff(resource == null ? {} : resource.data.get('colors', {})).removedKeys().size() == 0);
+    }
+
+    // ---------- users ----------
+    match /users/{userId} {
+      // Bookers (Admin / Co-Admin) can read active people to see who hasn't filled in availability.
+      allow read: if (signedIn() && uid() == userId) || isAdmin() || (can('avail', 'book') && resource.data.status == 'active');
+
+      // Self sign-up: always a pending Member with no permissions.
+      allow create: if signedIn() && uid() == userId
+        && request.resource.data.keys().hasOnly(['email', 'displayName', 'casualId', 'role', 'status', 'isPrimary',
+             'perm', 'viewCols', 'editCols', 'viewCats', 'editCats', 'createdAt', 'updatedAt'])
+        && request.resource.data.get('displayName', '') is string
+        && request.resource.data.get('displayName', '').size() <= 60
+        && request.resource.data.get('casualId', '') is string
+        && request.resource.data.get('casualId', '').matches('^[A-Z0-9][A-Z0-9/-]{0,29}$|^$')
+        && request.resource.data.email == request.auth.token.email.lower()
+        && !request.resource.data.email.matches('.*@showbase[.]local$')   // username domain is reserved for the host
+        && request.resource.data.role == 'Member'
+        && request.resource.data.status == 'pending'
+        && request.resource.data.isPrimary == false
+        && request.resource.data.get('perm', {}).size() == 0
+        && request.resource.data.editCols.size() == 0
+        && request.resource.data.viewCols.size() == 0;
+
+      // Users may only change their display name / last-seen time (updatedAt is stamped on every save, see people.js).
+      // Admins manage everyone else. Nobody can edit the primary admin except themselves,
+      // and "primary" can't be granted or removed from the app.
+      allow update: if
+        (signedIn() && uid() == userId && changed().hasOnly(['displayName', 'lastSeen', 'updatedAt'])
+            && request.resource.data.get('displayName', '') is string && request.resource.data.get('displayName', '').size() <= 60)
+        // ...record that their email is verified (only true, and only when it really is)
+        || (verified() && uid() == userId && changed().hasOnly(['emailVerified', 'emailVerifiedAt', 'updatedAt']) && request.resource.data.emailVerified == true)
+        // ...or clear their own "must change password" flag after setting a new password.
+        || (signedIn() && uid() == userId && changed().hasOnly(['mustChangePassword', 'passwordChangedAt', 'updatedAt'])
+            && request.resource.data.mustChangePassword == false)
+        || (isAdmin()
+            && (resource.data.get('isPrimary', false) == false || uid() == userId)
+            && request.resource.data.get('isPrimary', false) == resource.data.get('isPrimary', false));
+
+      allow delete: if isAdmin() && resource.data.get('isPrimary', false) == false;
+    }
+
+    // ---------- inventory ----------
+    match /inventory/{id} {
+      // Restricted users must query with where('category', 'in', viewCats) - the app does this.
+      allow read: if active() && (isAdmin() || canSeeCat(resource.data.category));
+
+      // Detailed vs general (bulk) assets are separate permissions.
+      allow create: if (isAdmin() || canEditCat(request.resource.data.category))
+        && ((request.resource.data.get('kind', 'detailed') == 'general' && can('catalogue', 'addGeneral'))
+            || (request.resource.data.get('kind', 'detailed') != 'general' && can('catalogue', 'addDetailed')));
+
+      allow update: if isAdmin()
+        || (active() && canSeeCat(resource.data.category) && canEditCat(resource.data.category)
+            && changed().hasOnly(myEditCols())
+            && canEditCat(request.resource.data.category))   // can't move an asset into a category you can't edit
+        || isWorkflowWrite();
+
+      allow delete: if can('catalogue', 'delete');
+    }
+
+    // ---------- inventory bundles (read-saving copies, see public/js/bundles.js) ----------
+    // invBundles/{bid} = { cat, v, items: { <assetId>: asset }, last: [assetIds changed by this write] }.
+    // Admins write freely (build / rebuild / imports). Anyone else may only change up to 10 entries per write,
+    // listed in `last`, and each must equal the inventory doc as it stands after the same commit (or be
+    // gone from the bundle when the asset is gone or now in another category). So a bundle can never say
+    // something the inventory itself doesn't, and the inventory rules above still decide who may change what.
+    match /invBundles/{bid} {
+      function nb() { return request.resource.data; }
+      function invPath(id) { return /databases/$(db)/documents/inventory/$(id); }
+      function entryOk(id) {
+        return (id in nb().items && existsAfter(invPath(id))
+                  && getAfter(invPath(id)).data == nb().items[id]
+                  && nb().items[id].get('category', 'General') == nb().cat)
+            || (!(id in nb().items)
+                  && (!existsAfter(invPath(id)) || getAfter(invPath(id)).data.get('category', 'General') != nb().cat));
+      }
+      function entriesOk() {
+        let l = nb().last;
+        return l is list && l.size() >= 1 && l.size() <= 10
+          && entryOk(l[0])
+          && (l.size() < 2 || entryOk(l[1]))
+          && (l.size() < 3 || entryOk(l[2]))
+          && (l.size() < 4 || entryOk(l[3]))
+          && (l.size() < 5 || entryOk(l[4]))
+          && (l.size() < 6 || entryOk(l[5]))
+          && (l.size() < 7 || entryOk(l[6]))
+          && (l.size() < 8 || entryOk(l[7]))
+          && (l.size() < 9 || entryOk(l[8]))
+          && (l.size() < 10 || entryOk(l[9]));
+      }
+      allow read: if isAdmin() || (active() && canSeeCat(resource.data.cat));
+      allow create: if isAdmin()
+        || (active() && nb().keys().hasOnly(['cat', 'v', 'items', 'last']) && nb().items.keys().hasOnly(nb().last) && entriesOk());
+      allow update: if isAdmin()
+        || (active() && changed().hasOnly(['items', 'v', 'last'])
+            && nb().items.diff(resource.data.items).affectedKeys().hasOnly(nb().last)
+            && entriesOk());
+      allow delete: if isAdmin();
+    }
+    // The small "recent changes" record every app listens to: { seq, bundles, recent, updatedAt }.
+    // Each save that touches inventory moves seq on by exactly one.
+    match /invMeta/changes {
+      allow read: if active();
+      allow create: if isAdmin();
+      allow update: if isAdmin()
+        || (active() && request.resource.data.keys().hasOnly(['seq', 'bundles', 'recent', 'updatedAt'])
+            && request.resource.data.seq == resource.data.seq + 1
+            && request.resource.data.recent is list && request.resource.data.recent.size() <= 300
+            && request.resource.data.bundles is map);
+      allow delete: if isAdmin();
+    }
+
+    // ---------- maintenance tickets ----------
+    match /maintenance/{id} {
+      // Submit-only people see just their own tickets.
+      allow read: if can('maintenance', 'viewAll') || can('maintenance', 'viewWork')
+        || can('maintenance', 'verify') || can('maintenance', 'repair')
+        || (active() && resource.data.requestedByUid == uid());
+      allow create: if can('maintenance', 'submit')
+        && request.resource.data.requestedByUid == uid()
+        && (request.resource.data.stage == 'request'
+            || (can('maintenance', 'verify') && request.resource.data.stage in ['confirmed', 'closed']));
+      // Verifiers move request -> confirmed / rejected; repairers move confirmed / repairing onwards.
+      allow update: if (can('maintenance', 'verify') && resource.data.stage == 'request')
+        || (can('maintenance', 'repair') && resource.data.stage in ['confirmed', 'repairing']);
+      allow delete: if isAdmin();
+    }
+
+    // ---------- equipment loans ----------
+    match /loans/{id} {
+      allow read: if can('loans', 'manage') || can('loans', 'viewAll') || (active() && resource.data.requestedByUid == uid());
+      // A request from the Loans tab, or a loan created straight from the catalogue ("On Loan").
+      allow create: if active() && request.resource.data.requestedByUid == uid()
+        && ((can('loans', 'request') && request.resource.data.status == 'requested' && request.resource.data.assigned.size() == 0)
+            || (can('loans', 'catalogue') && request.resource.data.source == 'catalogue' && request.resource.data.status == 'collected'));
+      // Managers run the workflow. Borrowers can only cancel a request, confirm collection, and start a return.
+      allow update: if can('loans', 'manage')
+        || (can('loans', 'catalogue') && resource.data.get('source', '') == 'catalogue')
+        || (active() && resource.data.requestedByUid == uid() && (
+               move('requested', 'cancelled', ['status', 'cancelledAt', 'history'])
+            || move('approved', 'collected', ['status', 'collectedAt', 'history'])
+            || move('collected', 'returnRequested', ['status', 'returnRequestedAt', 'returnNote', 'history'])));
+      allow delete: if isAdmin();
+    }
+
+    // ---------- availability: avail/{uid}_{YYYY-MM} (one doc per person per month) ----------
+    // avail[] = days marked free (includes booked days) · soft[] / conf[] = bookings · withdrawn[] = soft bookings the
+    // member pulled out of.
+    match /avail/{docId} {
+      function mine()   { return resource.data.uid == uid(); }
+      // Members can't put someone else's name / Casual ID on their row (it's shown to bookers).
+      function ownLabel() {
+        let d = request.resource.data;
+        return (me().get('displayName', '') == '' || d.get('name', '') == me().get('displayName', ''))
+            && d.get('casualId', '') == me().get('casualId', '');
+      }
+      function booker() { return can('avail', 'book'); }
+      allow read: if (active() && mine()) || can('avail', 'viewAll') || booker();
+      // Members create their own month: id must be <uid>_<month>, and no bookings.
+      allow create: if (can('avail', 'edit')
+            && request.resource.data.uid == uid()
+            && docId == uid() + '_' + request.resource.data.month
+            && request.resource.data.keys().hasOnly(['uid', 'month', 'name', 'casualId', 'avail', 'soft', 'conf', 'withdrawn', 'times', 'noAvail', 'updatedAt', 'updatedBy'])
+            && request.resource.data.soft.size() == 0 && request.resource.data.conf.size() == 0
+            && ownLabel())
+        || (booker() && docId == request.resource.data.uid + '_' + request.resource.data.month);
+      allow update: if
+        // Member: change own free days; confirmed days stay; may only REMOVE soft days (withdraw) and ADD to withdrawn.
+        (can('avail', 'edit') && mine()
+            && changed().hasOnly(['avail', 'soft', 'withdrawn', 'times', 'noAvail', 'name', 'casualId', 'updatedAt', 'updatedBy'])
+            && request.resource.data.avail.hasAll(resource.data.conf)
+            && resource.data.soft.hasAll(request.resource.data.soft)
+            && request.resource.data.withdrawn.hasAll(resource.data.get('withdrawn', []))
+            && (!changed().hasAny(['name', 'casualId']) || ownLabel()))
+        // Booker: bookings (and adding the booked day to avail).
+        || (booker() && changed().hasOnly(['avail', 'soft', 'conf', 'withdrawn', 'updatedAt', 'updatedBy']));
+      allow delete: if isAdmin();
+    }
+    // One saved copy of a whole month for the team grid (public/js/bundles.js): { month, rows, mark, builtAt, n }.
+    // Only people who can already read every avail doc of the month may read or save it.
+    match /availMonths/{month} {
+      allow read: if can('avail', 'viewAll') || can('avail', 'book');
+      allow create, update: if (can('avail', 'viewAll') || can('avail', 'book'))
+        && request.resource.data.keys().hasOnly(['month', 'rows', 'mark', 'builtAt', 'n'])
+        && request.resource.data.month == month
+        && request.resource.data.rows is map;
+      allow delete: if isAdmin();
+    }
+    // Saved copies of the people list (public/js/people.js): { rows, mark, builtAt, n }.
+    // "all" holds every profile, so only Admins. "active" holds what bookers may already read (active people).
+    match /peopleCopy/{which} {
+      allow read: if isAdmin() || (which == 'active' && can('avail', 'book'));
+      allow create, update: if (isAdmin() || (which == 'active' && can('avail', 'book')))
+        && which in ['all', 'active']
+        && request.resource.data.keys().hasOnly(['rows', 'mark', 'builtAt', 'n'])
+        && request.resource.data.rows is map;
+      allow delete: if isAdmin();
+    }
+    // Crew role ticks (SE / ST / CRS / NEW): one record, crewRoles/all { roles: { uid: [..] }, updatedAt, updatedBy }.
+    // Bookers tick them in the app; Admins / Co-Admins with see-everyone or booking rights can read them; members never can.
+    match /crewRoles/{which} {
+      allow read: if can('avail', 'viewAll') || can('avail', 'book');
+      allow create, update: if can('avail', 'book') && which == 'all'
+        && request.resource.data.keys().hasOnly(['roles', 'updatedAt', 'updatedBy'])
+        && request.resource.data.roles is map;
+      allow delete: if isAdmin();
+    }
+    // Shows / maintenance calls on the roster. Crew members (and only they) can read the ones they're on,
+    // including teammates' names and roles. Only people who can book may create / change / delete them.
+    match /jobs/{jobId} {
+      allow read: if can('avail', 'viewAll') || can('avail', 'book') || can('events', 'viewAll') || (active() && uid() in resource.data.crewUids);
+      allow write: if can('avail', 'book');
+    }
+    // Remembered show names / roles / times for type-and-select.
+    match /settings/rosterLists {
+      allow read: if can('avail', 'book');
+      allow write: if can('avail', 'book');
+    }
+    // "Please fill in your availability" reminders from Admins / Co-Admins. Members see only the ones naming them.
+    match /reminders/{id} {
+      allow read: if can('avail', 'book') || can('avail', 'viewAll') || (active() && uid() in resource.data.uids);
+      allow create: if can('avail', 'book')
+        && request.resource.data.keys().hasOnly(['month', 'uids', 'byUid', 'byName', 'at'])
+        && request.resource.data.byUid == uid()
+        && request.resource.data.month is string && request.resource.data.month.matches('^[0-9]{4}-[0-9]{2}$')
+        && request.resource.data.uids is list && request.resource.data.uids.size() > 0 && request.resource.data.uids.size() <= 500;
+      allow update: if false;
+      allow delete: if isAdmin();
+    }
+    match /settings/availability {
+      allow read: if active();
+      allow write: if isAdmin();   // e.g. emailOnBooking on / off
+    }
+
+    // ---------- show sign-out lists (kept permanently) ----------
+    match /shows/{id} {
+      // Members only ever see their own sign-outs (locked for the Member role, whatever the ticks say).
+      allow read: if (can('shows', 'viewAll') && me().role != 'Member') || (active() && resource.data.createdByUid == uid());
+      allow create: if can('shows', 'signOut')
+        && request.resource.data.createdByUid == uid()
+        && request.resource.data.status == 'out'
+        && request.resource.data.venue is string
+        && request.resource.data.venue.size() > 0;
+      allow update: if isAdmin()
+        || (active() && resource.data.createdByUid == uid()
+            && move('out', 'in', ['status', 'items', 'signedInAt', 'signedInBy', 'missingCount', 'history']));
+      allow delete: if isPrimary();
+    }
+
+    // ---------- inventory check rounds (one per venue; finished rounds = history) ----------
+    match /audits/{roundId} {
+      allow read: if (can('check', 'view') && resource.data.status == 'open') || can('check', 'history');
+      allow create: if can('check', 'rounds') && request.resource.data.status == 'open';
+      allow update: if can('check', 'rounds') && resource.data.status == 'open';   // finishing freezes the record
+      allow delete: if can('check', 'deleteHistory');
+    }
+
+    // ---------- ticks: checkTicks/{roundId}_{shard}, only while the round is open ----------
+    // A round's ticks live in a few shared records ({ roundId, shard, ticks: { assetId: tick }, last }),
+    // so opening Inventory Check costs one read per record. Each save (a merge) may change only
+    // the one tick named in `last`, as the person saving it, so people ticking at once can't clash.
+    match /checkTicks/{tickDoc} {
+      function round(rid) { return get(/databases/$(db)/documents/audits/$(rid)).data; }
+      function okTick(t) {
+        return t.keys().hasOnly(['checked', 'at', 'by', 'byName', 'byUid'])
+          && t.checked is bool && t.byUid == uid();
+      }
+      function okShard() {
+        let d = request.resource.data;
+        let rid = d.roundId;
+        return d.keys().hasOnly(['roundId', 'shard', 'ticks', 'last'])
+          && rid is string && d.shard is int && d.ticks is map && d.last is string
+          && tickDoc == rid + '_' + string(d.shard)
+          && exists(/databases/$(db)/documents/audits/$(rid))
+          && round(rid).status == 'open'
+          && d.shard >= 0 && d.shard < round(rid).get('shards', 1)
+          && d.last in d.ticks && okTick(d.ticks[d.last]);
+      }
+      allow read: if can('check', 'view');
+      allow create: if can('check', 'view') && okShard()
+        && request.resource.data.ticks.keys().hasOnly([request.resource.data.last]);
+      allow update: if can('check', 'view') && okShard()
+        && request.resource.data.roundId == resource.data.roundId
+        && request.resource.data.ticks.diff(resource.data.ticks).affectedKeys().hasOnly([request.resource.data.last]);
+      allow delete: if can('check', 'rounds');
+    }
+
+    // ---------- inventory check discrepancy reports ----------
+    match /discrepancies/{id} {
+      allow read: if can('check', 'review') || (active() && resource.data.byUid == uid());
+      allow create: if can('check', 'report')
+        && request.resource.data.byUid == uid()
+        && request.resource.data.status == 'pending';
+      allow update: if can('check', 'review');
+      allow delete: if isAdmin();
+    }
+
+    // ---------- audit log (append-only) ----------
+    match /logs/{id} {
+      allow read: if can('logs', 'view');
+      allow create: if active() && request.resource.data.byUid == uid();
+      allow update: if false;
+      allow delete: if isPrimary();
+    }
+
+    // Everything else is closed.
+    match /{path=**} {
+      allow read, write: if false;
+    }
+  }
+}

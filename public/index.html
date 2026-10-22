@@ -1,0 +1,524 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Showbase · Asset System</title>
+    <link id="favicon" rel="icon" href="data:,">
+    <script>try { var t = localStorage.getItem("sb_theme"); if (t === "light" || t === "dark") document.documentElement.setAttribute("data-theme", t); } catch (e) {}</script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+    <link rel="stylesheet" href="css/base.css">
+    <link rel="stylesheet" href="css/components.css">
+    <!-- Firebase compat SDK. If it fails to load, the app falls back to offline demo data. -->
+    <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
+</head>
+<body>
+
+    <!-- ============ SIGN IN / SIGN UP ============ -->
+    <div id="login-screen" class="auth-container hidden">
+        <div class="auth-card">
+            <button type="button" class="theme-btn auth-theme" data-theme-toggle aria-label="Switch light / dark mode"><span class="theme-ico">☾</span></button>
+            <div class="auth-brand">
+                <div class="brand-mark lg"><img class="brand-logo hidden" alt=""><span class="brand-initials">SB</span></div>
+                <h2 class="brand-name-text">Showbase</h2>
+                <p class="muted">Inventory &amp; Asset Control</p>
+            </div>
+
+            <div id="demo-box" class="demo-box hidden">
+                <div class="demo-label">Offline demo · quick sign-in (password 123)</div>
+                <div class="demo-grid">
+                    <button type="button" class="btn btn-primary btn-sm" data-demo="admin@showbase.com">Admin</button>
+                    <button type="button" class="btn btn-sm" data-demo="coadmin@showbase.com">Co-Admin</button>
+                    <button type="button" class="btn btn-sm" data-demo="member@showbase.com">Member</button>
+                    <button type="button" class="btn btn-sm" data-demo="crew@showbase.com">Restricted</button>
+                    <button type="button" class="btn btn-sm" data-demo="newhire@showbase.com">Pending</button>
+                </div>
+            </div>
+
+            <div class="seg-tabs" role="tablist">
+                <button type="button" class="seg-tab active" data-tab="signin">Sign in</button>
+                <button type="button" class="seg-tab" data-tab="signup">Create account</button>
+            </div>
+
+            <form id="auth-form" novalidate>
+                <div class="field signup-only hidden">
+                    <label for="auth-name">Full name *</label>
+                    <input type="text" id="auth-name" placeholder="e.g. Eugene Tan" autocomplete="name" maxlength="60">
+                </div>
+                <div class="field signup-only hidden">
+                    <label for="auth-casual">Casual ID *</label>
+                    <input type="text" id="auth-casual" placeholder="Your casual staff ID" maxlength="30" autocomplete="off" spellcheck="false">
+                </div>
+                <div class="field">
+                    <label for="auth-email" id="auth-email-label">Email or username</label>
+                    <input type="text" id="auth-email" placeholder="name@company.com" autocomplete="username" autocapitalize="off" spellcheck="false" required>
+                </div>
+                <div class="field">
+                    <label for="auth-password">Password<span class="signup-only hidden"> *</span></label>
+                    <input type="password" id="auth-password" placeholder="••••••••" autocomplete="current-password" required>
+                </div>
+                <div class="field signup-only hidden">
+                    <label for="auth-password2">Confirm password *</label>
+                    <input type="password" id="auth-password2" placeholder="••••••••" autocomplete="new-password">
+                </div>
+                <button type="submit" id="auth-submit" class="btn btn-primary btn-block">Sign in</button>
+                <p id="auth-error" class="error-msg hidden"></p>
+                <p id="auth-info" class="info-msg hidden"></p>
+            </form>
+
+            <div class="auth-note">
+                <span class="signin-only"><a href="#" id="forgot-link">Forgot password?</a> · </span>
+                New accounts need Admin approval before they can sign in.
+                <br><span id="mode-note"></span>
+            </div>
+        </div>
+    </div>
+
+    <!-- ============ WAITING / BLOCKED ============ -->
+    <div id="gate-screen" class="auth-container hidden">
+        <div class="auth-card gate-card">
+            <div id="gate-icon" class="gate-icon">⏳</div>
+            <h2 id="gate-title">Awaiting approval</h2>
+            <p id="gate-text" class="muted"></p>
+            <div id="gate-actions" class="gate-actions hidden">
+                <button type="button" class="btn btn-primary btn-block" id="verify-check">I've clicked the link</button>
+                <button type="button" class="btn btn-block" id="verify-resend">Resend the email</button>
+                <button type="button" class="btn btn-ghost btn-block hidden" id="verify-demo">Demo: pretend I clicked the link</button>
+                <p id="gate-msg" class="info-msg hidden"></p>
+            </div>
+            <button type="button" class="btn btn-block" id="gate-signout" onclick="doSignOut()">Sign out</button>
+        </div>
+    </div>
+
+    <div id="pwchange-screen" class="auth-container hidden">
+        <div class="auth-card gate-card">
+            <div class="gate-icon">🔑</div>
+            <h2>Set your new password</h2>
+            <p class="muted">An Admin reset the password for <b id="pwc-email"></b>. Enter the temporary password they gave you, then choose your own.</p>
+            <form id="pwc-form" class="form-stack pwc-form" novalidate>
+                <div class="field"><label for="pwc-temp">Temporary password</label><input type="password" id="pwc-temp" autocomplete="current-password"></div>
+                <div class="field"><label for="pwc-new">New password</label><input type="password" id="pwc-new" autocomplete="new-password" placeholder="At least 8 characters"></div>
+                <div class="field"><label for="pwc-new2">Confirm new password</label><input type="password" id="pwc-new2" autocomplete="new-password"></div>
+                <p id="pwc-error" class="error-msg hidden"></p>
+                <button type="submit" id="pwc-submit" class="btn btn-primary btn-block">Save new password</button>
+                <button type="button" class="btn btn-ghost btn-block" onclick="doSignOut()">Sign out</button>
+            </form>
+        </div>
+    </div>
+
+    <div id="loading-screen" class="auth-container"><div class="loading-dot" aria-label="Loading"></div></div>
+
+    <!-- ============ APP ============ -->
+    <div id="app-screen" class="app hidden">
+        <header class="topbar">
+            <button type="button" class="icon-btn" id="nav-open" aria-label="Open menu">☰</button>
+            <div class="brand-inline"><div class="brand-mark sm"><img class="brand-logo hidden" alt=""><span class="brand-initials">SB</span></div><span class="brand-name-text">Showbase</span></div>
+            <button type="button" class="theme-btn" data-theme-toggle aria-label="Switch light / dark mode"><span class="theme-ico">☾</span></button>
+        </header>
+        <div class="nav-scrim" id="nav-scrim"></div>
+
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-brand">
+                <div class="brand-mark"><img class="brand-logo hidden" alt=""><span class="brand-initials">SB</span></div>
+                <div class="brand-text"><span class="brand-name-text">Showbase</span><span class="brand-sub">Asset System</span></div>
+            </div>
+
+            <nav class="nav" id="nav">
+                <div class="nav-group" data-group="inventory">
+                    <div class="nav-heading">Inventory</div>
+                    <a href="#catalogue" class="nav-item" data-view="catalogue"><span class="ni">▦</span>Asset Catalogue</a>
+                    <a href="#rack" class="nav-item" data-view="rack"><span class="ni">▤</span>Rack Layout</a>
+                    <a href="#check" class="nav-item" data-view="check"><span class="ni">☑</span>Inventory Check<span class="nav-badge hidden" id="badge-check"></span></a>
+                </div>
+                <div class="nav-group" data-group="operations">
+                    <div class="nav-heading">Operations</div>
+                    <a href="#maintenance" class="nav-item" data-view="maintenance"><span class="ni">⚙</span>Maintenance<span class="nav-badge hidden" id="badge-maintenance"></span></a>
+                    <a href="#loans" class="nav-item" data-view="loans"><span class="ni">⇄</span>Equipment Loans<span class="nav-badge hidden" id="badge-loans"></span></a>
+                    <a href="#shows" class="nav-item" data-view="shows"><span class="ni">♪</span>Show Sign-Out<span class="nav-badge hidden" id="badge-shows"></span></a>
+                </div>
+                <div class="nav-group" data-group="events">
+                    <div class="nav-heading">Events</div>
+                    <a href="#availability" class="nav-item" data-view="availability"><span class="ni">▦</span>Availability<span class="nav-badge hidden" id="badge-avail"></span></a>
+                    <a href="#events" class="nav-item" data-view="events"><span class="ni">◷</span>Calendar</a>
+                </div>
+                <div class="nav-group" data-group="admin">
+                    <div class="nav-heading">Admin</div>
+                    <a href="#logs" class="nav-item" data-view="logs"><span class="ni">≡</span>Log History</a>
+                    <a href="#users" class="nav-item" data-view="users"><span class="ni">⚿</span>Users &amp; Permissions<span class="nav-badge hidden" id="badge-users"></span></a>
+                    <a href="#branding" class="nav-item" data-view="branding"><span class="ni">◈</span>Branding</a>
+                </div>
+            </nav>
+
+            <div class="sidebar-foot">
+                <div class="badge-row">
+                    <span id="sync-badge" class="status-dot warn">Connecting…</span>
+                    <span id="backup-badge" class="status-dot off" title="Google Sheets backup">Backup</span>
+                </div>
+                <button type="button" id="backup-now" class="link-btn hidden" onclick="backupNow()">⟳ Full backup to Sheets now</button>
+                <div id="user-display-tag" class="user-tag"></div>
+                <button type="button" class="link-btn" id="change-pw-btn" onclick="openChangePassword()">🔑 Change password</button>
+                <div class="foot-row">
+                    <button type="button" class="btn btn-sm theme-btn wide" data-theme-toggle aria-label="Switch light / dark mode"><span class="theme-ico">☾</span><span class="theme-label">Dark mode</span></button>
+                    <button type="button" onclick="doSignOut()" class="btn btn-sm">Sign out</button>
+                </div>
+            </div>
+        </aside>
+
+        <main class="main" id="main">
+            <div id="quota-banner" class="quota-banner hidden" role="alert"></div>
+            <!-- ---------- Asset Catalogue ---------- -->
+            <section id="view-catalogue" class="view">
+                <div class="view-head">
+                    <div><h1>Asset Catalogue</h1><p class="view-sub">Every asset, grouped by model.</p></div>
+                    <div class="toolbar">
+                        <button type="button" class="btn importer-only" onclick="openImportModal()">Import</button>
+                        <button type="button" class="btn exporter-only" onclick="exportDataCSV()">Export</button>
+                        <button type="button" class="edit-toggle editor-only" aria-pressed="false" onclick="toggleEditMode()" title="Unlock inline editing of table cells (Condition is always editable)">
+                            <span class="switch"><span class="knob"></span></span><span class="edit-toggle-label">Edit: Off</span></button>
+                        <div class="menu-wrap adder-only" id="add-asset-wrap">
+                            <button type="button" class="btn btn-primary" id="add-asset-btn" aria-haspopup="menu" aria-expanded="false" onclick="toggleAddMenu()">+ Add Asset <span aria-hidden="true">▾</span></button>
+                            <div class="menu hidden" id="add-menu" role="menu">
+                                <button type="button" class="menu-item" data-add="detailed" role="menuitem"><b>Detailed asset</b><span>One unit with serial, asset no, code - the full form</span></button>
+                                <button type="button" class="menu-item" data-add="general" role="menuitem"><b>General asset</b><span>Bulk items like cables or tape: space, location, condition &amp; quantity</span></button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div id="ops-strip" class="ops-strip"></div>
+                <div class="filter-bar">
+                    <input type="search" id="search-input" class="filter-input" oninput="handleSearch()" placeholder="Search category, brand, model, asset no, serial, code, space, location…">
+                    <select id="filter-category" class="filter-select" onchange="handleSearch()"><option value="ALL">All categories</option></select>
+                    <select id="filter-location" class="filter-select" onchange="handleSearch()"><option value="ALL">All spaces / locations</option></select>
+                    <select id="filter-condition" class="filter-select" onchange="handleSearch()"><option value="ALL">All conditions</option></select>
+                    <select id="filter-year" class="filter-select" onchange="handleSearch()" aria-label="Year of purchase"><option value="ALL">All purchase years</option></select>
+                    <select id="sort-order" class="filter-select" onchange="handleSearch()">
+                        <option value="brand_asc">Sort: Brand A → Z</option>
+                        <option value="brand_desc">Sort: Brand Z → A</option>
+                        <option value="internal_asc">Sort: Internal No ↑</option>
+                        <option value="internal_desc">Sort: Internal No ↓</option>
+                        <option value="code_desc">Sort: Code high → low</option>
+                        <option value="code_asc">Sort: Code low → high</option>
+                        <option value="asset_asc">Sort: Asset No A → Z</option>
+                        <option value="asset_desc">Sort: Asset No Z → A</option>
+                        <option value="serial_asc">Sort: Serial No A → Z</option>
+                        <option value="serial_desc">Sort: Serial No Z → A</option>
+                        <option value="year_desc">Sort: Year newest first</option>
+                        <option value="year_asc">Sort: Year oldest first</option>
+                    </select>
+                </div>
+                <div class="edit-banner hidden">Edit mode is on. Changes save when you leave a cell; dimmed cells are outside your permissions.</div>
+                <div id="inventory-container" class="asset-zone"></div>
+            </section>
+
+            <!-- ---------- Rack Layout ---------- -->
+            <section id="view-rack" class="view hidden">
+                <div class="view-head">
+                    <div><h1>Rack Layout</h1><p class="view-sub">Where everything lives: space › location › equipment type.</p></div>
+                    <div class="toolbar">
+                        <button type="button" class="btn" onclick="rackExpandAll('rack', true)">Expand all</button>
+                        <button type="button" class="btn" onclick="rackExpandAll('rack', false)">Collapse all</button>
+                        <button type="button" class="edit-toggle editor-only" aria-pressed="false" onclick="toggleEditMode()">
+                            <span class="switch"><span class="knob"></span></span><span class="edit-toggle-label">Edit: Off</span></button>
+                    </div>
+                </div>
+                <div class="filter-bar">
+                    <input type="search" id="rack-search" class="filter-input" oninput="renderRack()" placeholder="Search model, internal no, serial, location…">
+                    <select id="rack-space" class="filter-select" onchange="renderRack()"><option value="ALL">All spaces</option></select>
+                    <select id="rack-category" class="filter-select" onchange="renderRack()"><option value="ALL">All categories</option></select>
+                    <label class="check-inline"><input type="checkbox" id="rack-retired" onchange="renderRack()"> Show sold / decommissioned</label>
+                </div>
+                <div class="edit-banner hidden">Edit mode is on. Changes save when you leave a cell.</div>
+                <div id="rack-container" class="asset-zone"></div>
+            </section>
+
+            <!-- ---------- Inventory Check ---------- -->
+            <section id="view-check" class="view hidden">
+                <div class="view-head">
+                    <div><h1>Inventory Check</h1><p class="view-sub">Walk the racks, tick what you can see, report anything that's different.</p></div>
+                    <div class="toolbar">
+                        <button type="button" class="btn rounds-only" onclick="startCheckRound()">Start new round</button>
+                    </div>
+                </div>
+                <div class="sub-tabs" role="tablist">
+                    <button type="button" class="sub-tab active" data-check-tab="current" role="tab">Current rounds</button>
+                    <button type="button" class="sub-tab history-only" data-check-tab="history" role="tab">History</button>
+                </div>
+                <div id="check-current">
+                    <div id="check-rounds" class="round-picker"></div>
+                    <div id="check-round" class="round-banner"></div>
+                    <div id="check-review"></div>
+                    <div class="filter-bar" id="check-filters">
+                        <input type="search" id="check-search" class="filter-input" oninput="renderCheck()" placeholder="Search model, internal no, serial, location…">
+                        <label class="check-inline"><input type="checkbox" id="check-unchecked" onchange="renderCheck()"> Unchecked only</label>
+                        <button type="button" class="btn btn-sm" onclick="rackExpandAll('check', true)">Expand all</button>
+                    </div>
+                    <div id="check-container" class="asset-zone"></div>
+                </div>
+                <div id="check-history" class="hidden"></div>
+            </section>
+
+            <!-- ---------- Maintenance ---------- -->
+            <section id="view-maintenance" class="view hidden">
+                <div class="view-head">
+                    <div><h1>Maintenance</h1><p class="view-sub">Fault reports flow from Requests → Confirmed Faulty → Repairing → back to the catalogue.</p></div>
+                    <div class="toolbar"><button type="button" class="btn btn-primary maint-submit-only" onclick="openLogMaintenance()">+ Log Maintenance</button></div>
+                </div>
+                <div id="maint-sections"></div>
+                <div class="maint-section stage-repairing" id="maint-repair">
+                    <div class="maint-head"><div><h3>Repairing <span class="count" id="repair-count">0</span></h3><p class="muted small">Currently with an external vendor.</p></div></div>
+                    <div class="filter-bar repair-filters">
+                        <input type="search" id="repair-search" class="filter-input" oninput="renderRepairRows()" placeholder="Search asset, serial, fault, vendor, notes…" aria-label="Search repairs">
+                        <select id="repair-vendor" class="filter-select" onchange="renderRepairRows()" aria-label="Vendor"><option value="ALL">All vendors</option></select>
+                        <label class="date-filter">Sent from <input type="date" id="repair-from" class="filter-select" onchange="renderRepairRows()"></label>
+                        <label class="date-filter">to <input type="date" id="repair-to" class="filter-select" onchange="renderRepairRows()"></label>
+                        <label class="check-inline"><input type="checkbox" id="repair-overdue" onchange="renderRepairRows()"> Overdue only</label>
+                        <button type="button" class="link-btn" id="repair-clear" onclick="clearRepairFilters()">Clear filters</button>
+                    </div>
+                    <div class="panel"><div class="table-scroll"><table class="data-table maint-table">
+                        <thead><tr><th>Asset</th><th>Fault</th><th>Vendor</th><th>Sent</th><th>Days out</th><th></th></tr></thead>
+                        <tbody id="repair-body"></tbody>
+                    </table></div></div>
+                </div>
+            </section>
+
+            <!-- ---------- Loans ---------- -->
+            <section id="view-loans" class="view hidden">
+                <div class="view-head">
+                    <div><h1>Equipment Loans</h1><p class="view-sub" id="loans-sub">Borrow gear for rehearsals and events.</p></div>
+                    <div class="toolbar"><button type="button" class="btn btn-primary loan-request-only" onclick="openLoanRequest()">+ Request Loan</button></div>
+                </div>
+                <div id="loans-container"></div>
+            </section>
+
+            <!-- ---------- Shows ---------- -->
+            <section id="view-shows" class="view hidden">
+                <div class="view-head">
+                    <div><h1>Show Sign-Out</h1><p class="view-sub">Sign gear out for a show, then tick it back in afterwards.</p></div>
+                    <div class="toolbar"><button type="button" class="btn btn-primary show-signout-only" onclick="openNewShow()">+ New Show Sign-Out</button></div>
+                </div>
+                <div class="filter-bar">
+                    <input type="search" id="show-search" class="filter-input" oninput="renderShows()" placeholder="Search by show / event title…">
+                    <select id="show-status" class="filter-select" onchange="renderShows()">
+                        <option value="ALL">All statuses</option><option value="out">Signed out</option><option value="in">Signed in</option><option value="missing">With missing items</option>
+                    </select>
+                    <label class="check-inline shows-all-only"><input type="checkbox" id="show-mine"> Mine only</label>
+                </div>
+                <div id="shows-container"></div>
+            </section>
+
+            <!-- ---------- Log history ---------- -->
+            <section id="view-logs" class="view hidden">
+                <div class="view-head">
+                    <div><h1>Log History</h1><p class="view-sub">Every change to assets, workflows and access.</p></div>
+                    <div class="toolbar">
+                        <button type="button" class="btn logpdf-only" onclick="openLogPdf()">Download PDF</button>
+                        <button type="button" class="btn btn-danger primary-only" onclick="resetLog()">Reset Log</button>
+                    </div>
+                </div>
+                <div class="filter-bar">
+                    <input type="search" id="log-search" class="filter-input" oninput="renderLogs()" placeholder="Search user, asset, action, note, value…">
+                    <select id="log-action" class="filter-select" onchange="renderLogs()"><option value="ALL">All actions</option></select>
+                    <label class="date-filter">From <input type="date" id="log-from" class="filter-select" onchange="renderLogs()"></label>
+                    <label class="date-filter">To <input type="date" id="log-to" class="filter-select" onchange="renderLogs()"></label>
+                </div>
+                <div class="panel"><div class="table-scroll">
+                    <table class="data-table log-table">
+                        <thead><tr><th>When</th><th>User</th><th>Action</th><th>Asset</th><th>Changes</th><th>Note</th></tr></thead>
+                        <tbody id="log-list"></tbody>
+                    </table>
+                </div></div>
+                <div class="log-more-row"><button type="button" id="log-more" class="btn btn-ghost hidden" onclick="loadOlderLogs()">Load 50 older entries</button></div>
+                <p id="log-footnote" class="muted small"></p>
+            </section>
+
+            <!-- ---------- Users & permissions ---------- -->
+            <section id="view-users" class="view hidden">
+                <div class="view-head">
+                    <div><h1>Users &amp; Permissions</h1><p class="view-sub">Approve sign-ups and control exactly what each person can see and do.</p></div>
+                </div>
+                <h2 class="section-title">Pending sign-ups</h2>
+                <div class="panel"><div class="table-scroll">
+                    <table class="data-table">
+                        <thead><tr><th>Email</th><th>Name</th><th>Casual ID</th><th>Signed up</th><th>Assign role</th><th></th></tr></thead>
+                        <tbody id="pending-users-list"></tbody>
+                    </table>
+                </div></div>
+                <div class="section-title-row">
+                    <h2 class="section-title">People &amp; access</h2>
+                    <p class="muted small">Pick a person or role template, tick what they can do, then <b>Save changes</b>. <span class="legend-srv">●</span> enforced by the server · others hide the feature in the app.</p>
+                </div>
+                <div id="access-editor"></div>
+                <h2 class="section-title">Rejected / disabled</h2>
+                <div class="panel"><div class="table-scroll">
+                    <table class="data-table">
+                        <thead><tr><th>Email</th><th>Status</th><th></th></tr></thead>
+                        <tbody id="inactive-users-list"></tbody>
+                    </table>
+                </div></div>
+            </section>
+
+            <!-- ---------- Branding ---------- -->
+            <section id="view-branding" class="view hidden">
+                <div class="view-head">
+                    <div><h1>Branding</h1><p class="view-sub">Name and logo shown in the sidebar, sign-in screen, browser tab and PDF exports.</p></div>
+                </div>
+                <div id="branding-form"></div>
+            </section>
+
+            <!-- ---------- Availability & bookings ---------- -->
+            <section id="view-availability" class="view hidden">
+                <div class="view-head">
+                    <div><h1>Availability</h1><p class="view-sub">Mark the days you're free. Bookings from Admins show up here - orange is soft booked, red is confirmed.</p></div>
+                </div>
+                <div id="avail-container"></div>
+            </section>
+
+            <!-- ---------- Calendar ---------- -->
+            <section id="view-events" class="view hidden">
+                <div class="view-head"><div><h1>Calendar</h1><p class="view-sub">Shows and maintenance calls, by month. Click one for details and crew.</p></div></div>
+                <div id="events-container"></div>
+            </section>
+
+            <section id="view-placeholder" class="view hidden">
+                <div class="view-head"><div><h1 id="placeholder-title">Coming soon</h1></div></div>
+                <div class="empty-state">This module is planned. It sits here so you can see where it will live in the navigation.</div>
+            </section>
+        </main>
+    </div>
+
+    <!-- ============ Add / Edit asset ============ -->
+    <div id="asset-modal" class="modal-backdrop hidden">
+        <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+            <div class="modal-head">
+                <h3 id="modal-title">Add New Asset</h3>
+                <button type="button" class="icon-btn" onclick="closeModal()" title="Close" aria-label="Close">✕</button>
+            </div>
+            <form id="asset-form" class="modal-body" onsubmit="saveAsset(event)" novalidate>
+                <input type="hidden" id="asset-id">
+                <p id="asset-perm-note" class="muted small hidden">Dimmed fields are outside your edit permissions.</p>
+                <div class="form-grid">
+                    <div class="field">
+                        <label for="form-category">Category *</label>
+                        <input type="text" id="form-category" data-field="category" data-combo="category" autocomplete="off" required placeholder="Type or select">
+                    </div>
+                    <div class="field">
+                        <label for="form-brand">Brand *</label>
+                        <input type="text" id="form-brand" data-field="brand" data-combo="brand" autocomplete="off" required placeholder="e.g. DPA, Shure, Sennheiser">
+                    </div>
+                    <div class="field">
+                        <label for="form-model">Model name *</label>
+                        <input type="text" id="form-model" data-field="model" data-combo="model" data-combo-brand="form-brand" autocomplete="off" required placeholder="e.g. DPA 4060, SM58">
+                    </div>
+                    <div class="field">
+                        <label for="form-description">Description</label>
+                        <input type="text" id="form-description" data-field="description" placeholder="e.g. Core omnidirectional lavalier">
+                    </div>
+                    <div class="field">
+                        <label for="form-internal-no">Internal asset no <span class="hint">auto-suggested</span></label>
+                        <input type="text" id="form-internal-no" data-field="internalAssetNo" class="mono" placeholder="e.g. DPA 4060 #1">
+                    </div>
+                    <div class="field">
+                        <label for="form-asset-no">Asset no</label>
+                        <input type="text" id="form-asset-no" data-field="assetNo" class="mono" placeholder="e.g. AST-1001">
+                    </div>
+                    <div class="field">
+                        <label for="form-serial-no">Serial no</label>
+                        <input type="text" id="form-serial-no" data-field="serialNo" class="mono" placeholder="e.g. H79574">
+                    </div>
+                    <div class="field">
+                        <label for="form-code">Code / AEV</label>
+                        <input type="text" id="form-code" data-field="code" class="mono" placeholder="e.g. 393966">
+                    </div>
+                    <div class="field">
+                        <label for="form-item-space">Item space</label>
+                        <input type="text" id="form-item-space" data-field="itemSpace" data-combo="space" autocomplete="off" placeholder="Type or select a space">
+                    </div>
+                    <div class="field">
+                        <label for="form-item-location">Item location</label>
+                        <input type="text" id="form-item-location" data-field="itemLocation" data-combo="location" data-combo-space="form-item-space" autocomplete="off" placeholder="Type or select a location">
+                    </div>
+                    <div class="field">
+                        <label for="form-condition">Condition</label>
+                        <select id="form-condition" data-field="condition"></select>
+                    </div>
+                    <div class="field">
+                        <label for="form-year">Year of purchase <span class="hint">for finance codes</span></label>
+                        <select id="form-year" data-field="yearOfPurchase"></select>
+                    </div>
+                    <div class="field span2 hidden">
+                        <label for="form-qty">Quantity</label>
+                        <input type="number" id="form-qty" data-field="qty" min="0">
+                    </div>
+                    <div class="field span2">
+                        <label for="form-remarks">Remarks</label>
+                        <input type="text" id="form-remarks" data-field="remarks" placeholder="Optional notes…">
+                    </div>
+                </div>
+                <p id="asset-error" class="error-msg hidden"></p>
+                <div class="form-actions">
+                    <button type="button" class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Save asset</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- ============ Import ============ -->
+    <div id="import-modal" class="modal-backdrop hidden">
+        <div class="modal sm" role="dialog" aria-modal="true">
+            <div class="modal-head">
+                <h3>Import assets from CSV</h3>
+                <button type="button" class="icon-btn" onclick="closeImportModal()" title="Close" aria-label="Close">✕</button>
+            </div>
+            <div class="modal-body">
+                <p class="muted">Use a CSV laid out like the template. Columns are matched by header name.</p>
+                <div class="dropzone" onclick="document.getElementById('csv-file-input').click()">
+                    <div class="dropzone-label" id="file-input-label">Click to choose a CSV file</div>
+                    <div class="muted small">UTF-8 .csv</div>
+                    <input type="file" id="csv-file-input" accept=".csv" hidden onchange="handleFileSelect(event)">
+                </div>
+                <div class="field" style="margin-top:1rem">
+                    <label>Import mode</label>
+                    <label class="radio-row"><input type="radio" name="importMode" value="append" checked> Add to the current inventory</label>
+                    <label class="radio-row"><input type="radio" name="importMode" value="replace"> Replace all current data <span class="hint">Admin only</span></label>
+                </div>
+                <p id="import-error" class="error-msg hidden"></p>
+                <div class="form-actions">
+                    <button type="button" class="btn btn-ghost" onclick="closeImportModal()">Cancel</button>
+                    <button type="button" class="btn btn-primary" onclick="parseCSVAndImport()">Import</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="modal-host"></div>
+    <div id="dialog-host"></div>
+
+    <script src="vendor/jspdf.umd.min.js"></script>
+    <script src="vendor/jspdf.plugin.autotable.min.js"></script>
+    <script src="js/config.js"></script>
+    <script src="js/perms.js"></script>
+    <script src="js/bundles.js"></script>
+    <script src="js/people.js"></script>
+    <script src="js/store.js"></script>
+    <script src="js/backup.js"></script>
+    <script src="js/combo.js"></script>
+    <script src="js/core.js"></script>
+    <script src="js/inventory.js"></script>
+    <script src="js/rack.js"></script>
+    <script src="js/maintenance.js"></script>
+    <script src="js/loans.js"></script>
+    <script src="js/shows.js"></script>
+    <script src="js/availability.js"></script>
+    <script src="js/jobs.js"></script>
+    <script src="js/events.js"></script>
+    <script src="js/pdf.js"></script>
+    <script src="js/logs.js"></script>
+    <script src="js/admin.js"></script>
+    <script src="js/shell.js"></script>
+</body>
+</html>

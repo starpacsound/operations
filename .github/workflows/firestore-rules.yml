@@ -1,0 +1,54 @@
+# Tests the Firestore security rules on every change, and deploys them when you run it manually.
+# Deploy needs a repo secret FIREBASE_SERVICE_ACCOUNT (JSON key of a service account with the
+# "Firebase Rules Admin" role). Without the secret, only the test job runs.
+name: Firestore rules
+
+on:
+  push:
+    branches: [main]
+    paths: ["firestore.rules", "tests/rules.test.mjs", "public/js/bundles.js", "tests/bundles.test.cjs", ".github/workflows/firestore-rules.yml"]
+  pull_request:
+    paths: ["firestore.rules", "tests/rules.test.mjs", "public/js/bundles.js", "tests/bundles.test.cjs"]
+  workflow_dispatch:
+    inputs:
+      deploy:
+        description: "Deploy the rules to the live project after the tests pass"
+        type: boolean
+        default: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - run: npm install
+      - run: npm run test:bundles
+      - run: npm run test:people
+      - run: npm run test:backup
+      - run: npm run test:shows
+      - run: npm run test:rules
+
+  deploy:
+    needs: test
+    if: github.event_name == 'workflow_dispatch' && inputs.deploy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install
+      - name: Deploy rules
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: |
+          echo "$FIREBASE_SERVICE_ACCOUNT" > "$RUNNER_TEMP/sa.json"
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/sa.json"
+          npx firebase deploy --only firestore:rules --project "$(jq -r .projects.default .firebaserc)" --non-interactive
