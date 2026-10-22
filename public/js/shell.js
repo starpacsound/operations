@@ -560,8 +560,6 @@ function boot() {
             setAuthTab("signin");
             $("auth-form").requestSubmit();
         }));
-    } else {
-        $("mode-note").innerHTML = `<a href="?demo">Try the offline demo</a>`;
     }
 
     // Branding is readable before sign-in so the login screen shows the right name and logo.
