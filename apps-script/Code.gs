@@ -32,6 +32,12 @@ const CFG = {
   USERNAME_DOMAIN: 'showbase.local'
 };
 
+// Calls made with YOUR Google login. X-Goog-User-Project bills them to the Firebase project; without it
+// Google uses the script's hidden default project, where the Identity Toolkit / Firestore APIs are off.
+function ownerAuth_() {
+  return { Authorization: 'Bearer ' + ScriptApp.getOAuthToken(), 'X-Goog-User-Project': CFG.FIREBASE_PROJECT_ID };
+}
+
 // Same rule as the app: "Starpacsound Admin" -> "starpacsound.admin@showbase.local"
 function usernameToEmail_(name) {
   return String(name).trim().toLowerCase().replace(/\s+/g, '.').replace(/[^a-z0-9._-]/g, '') + '@' + CFG.USERNAME_DOMAIN;
@@ -163,7 +169,7 @@ function trustedItems_(sent, user) {
   const names = wanted.map(path).filter(function (n, i, a) { return a.indexOf(n) === i; });
   const res = UrlFetchApp.fetch('https://firestore.googleapis.com/v1/projects/' + CFG.FIREBASE_PROJECT_ID + '/databases/(default)/documents:batchGet', {
     method: 'post', contentType: 'application/json', muteHttpExceptions: true,
-    headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() }, payload: JSON.stringify({ documents: names })
+    headers: ownerAuth_(), payload: JSON.stringify({ documents: names })
   });
   if (res.getResponseCode() !== 200) throw new Error('Firestore read failed: ' + res.getContentText());
   const found = {};
@@ -221,7 +227,7 @@ function resetPassword_(body) {
   const res = UrlFetchApp.fetch(
     'https://identitytoolkit.googleapis.com/v1/projects/' + CFG.FIREBASE_PROJECT_ID + '/accounts:update',
     { method: 'post', contentType: 'application/json', muteHttpExceptions: true,
-      headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() },
+      headers: ownerAuth_(),
       payload: JSON.stringify({ localId: uid, password: pw }) });
   if (res.getResponseCode() !== 200) {
     console.error(res.getContentText());
@@ -418,7 +424,7 @@ function setupOrRecoverHost() {
 function idt_(path, payload) {
   const res = UrlFetchApp.fetch('https://identitytoolkit.googleapis.com/v1/projects/' + CFG.FIREBASE_PROJECT_ID + path,
     { method: 'post', contentType: 'application/json', muteHttpExceptions: true,
-      headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() }, payload: JSON.stringify(payload) });
+      headers: ownerAuth_(), payload: JSON.stringify(payload) });
   const body = JSON.parse(res.getContentText() || '{}');
   if (res.getResponseCode() !== 200) {
     throw new Error((body.error && body.error.message) || ('HTTP ' + res.getResponseCode()) +
@@ -453,7 +459,7 @@ function hostUpsert_(email, pw) {
   const res = UrlFetchApp.fetch('https://firestore.googleapis.com/v1/projects/' + CFG.FIREBASE_PROJECT_ID +
     '/databases/(default)/documents/users/' + uid + '?' + mask,
     { method: 'patch', contentType: 'application/json', muteHttpExceptions: true,
-      headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() }, payload: JSON.stringify({ fields: fields }) });
+      headers: ownerAuth_(), payload: JSON.stringify({ fields: fields }) });
   if (res.getResponseCode() !== 200) throw new Error('Login is ready, but the app profile could not be saved: ' + res.getContentText());
   console.log((created ? 'Created' : 'Recovered') + ' host account ' + email);
   return created ? 'Host account created and set as primary Admin.' : 'Host password reset. The account is active and still the primary Admin.';
@@ -495,14 +501,13 @@ function listInventory_() {
 }
 
 function listCollection_(col, pageSize) {
-  const token = ScriptApp.getOAuthToken();
   const base = 'https://firestore.googleapis.com/v1/projects/' + CFG.FIREBASE_PROJECT_ID +
                '/databases/(default)/documents/' + col + '?pageSize=' + (pageSize || 300);
   const out = [];
   let pageToken = '';
   do {
     const res = UrlFetchApp.fetch(base + (pageToken ? '&pageToken=' + encodeURIComponent(pageToken) : ''),
-      { headers: { Authorization: 'Bearer ' + token }, muteHttpExceptions: true });
+      { headers: ownerAuth_(), muteHttpExceptions: true });
     if (res.getResponseCode() !== 200) throw new Error('Firestore read failed: ' + res.getContentText());
     const body = JSON.parse(res.getContentText());
     (body.documents || []).forEach(function (d) {

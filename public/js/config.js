@@ -19,7 +19,7 @@ window.APP_CONFIG = {
 
     // Google Sheets one-way backup.
     // Paste the Apps Script Web App URL here (ends in /exec). Leave "" to switch the backup off.
-    sheetsWebAppUrl: "",
+    sheetsWebAppUrl: "https://script.google.com/macros/s/AKfycbzZwt86B8fnIWW4CttSEI0j7L8aSbttZM7TZYY-EhIcs5boJVj2mipRltR4KoO1jWou/exec",
 
     // Username sign-in (used by the host / primary Admin). Typing a name without "@" signs in as
     // <name with spaces as dots>@usernameDomain, e.g. "Starpacsound Admin" -> starpacsound.admin@showbase.local.
@@ -28,7 +28,7 @@ window.APP_CONFIG = {
 
     // Shows Google Sheet + booking emails: Apps Script web app bound to the SHOWS Sheet (apps-script/shows/Code.gs).
     // A different Sheet + script from the inventory backup. Leave "" to run without it (everything still works in the app).
-    showsWebAppUrl: "",
+    showsWebAppUrl: "https://script.google.com/macros/s/AKfycbzQ-QEyKjIeA25feqjW2PNOWpcmsCVTFmpCX3nkoMUeDqDIt1uviCSPZy-Q7_X14K4W/exec",
     // Crew role columns in Availability › Team (Admins / Co-Admins tick them there).
     crewRoles: ["SE", "ST", "CRS", "NEW"],
     // How many months ahead people can mark availability.

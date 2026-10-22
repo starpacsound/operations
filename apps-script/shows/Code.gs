@@ -17,7 +17,7 @@
 const CFG = {
   FIREBASE_API_KEY: 'AIzaSyAraFqQWYbeAf1NoRikNpyBYF98rvyxjKo',
   FIREBASE_PROJECT_ID: 'starpac-audio',
-  APP_URL: '',                       // e.g. https://<you>.github.io/<repo>/  (link in emails)
+  APP_URL: 'https://starpacsound.github.io/operations/',                       // e.g. https://<you>.github.io/<repo>/  (link in emails)
   USERNAME_DOMAIN: 'showbase.local', // username logins (host) have no real mailbox - never emailed
   // Leave '' when this script is bound to the Shows Sheet itself (the usual setup). Or paste another
   // Sheet's ID (the long part of its URL between /d/ and /edit) to write the shows there.
@@ -320,7 +320,8 @@ function emailNotices_(notices, booker) {
 
 // ------------------------------------------------------------------ Firestore REST (as the script owner)
 const FS_BASE = () => 'https://firestore.googleapis.com/v1/projects/' + CFG.FIREBASE_PROJECT_ID + '/databases/(default)/documents';
-const auth_ = () => ({ Authorization: 'Bearer ' + ScriptApp.getOAuthToken() });
+// X-Goog-User-Project bills these calls to the Firebase project, not the script's hidden default project.
+const auth_ = () => ({ Authorization: 'Bearer ' + ScriptApp.getOAuthToken(), 'X-Goog-User-Project': CFG.FIREBASE_PROJECT_ID });
 
 function fsGet_(path) {
   const r = UrlFetchApp.fetch(FS_BASE() + '/' + path, { headers: auth_(), muteHttpExceptions: true });
