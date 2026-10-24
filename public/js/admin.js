@@ -476,8 +476,10 @@ function renderBranding() {
             <div class="preview-login">${mark("lg")}<b>${esc(brandDraft.appName || "Untitled")}</b><span class="muted small">Inventory &amp; Asset Control</span></div>
         </div></div>
         ${venuesPanelHtml()}
+        ${conditionsPanelHtml()}
         ${bundlesPanelHtml()}`;
     bindVenuesPanel();
+    bindConditionsPanel();
     $("bd-build").addEventListener("click", buildBundles);
 
     const err = m => { const p = $("br-error"); p.textContent = m || ""; p.classList.toggle("hidden", !m); };
@@ -569,6 +571,91 @@ function bindVenuesPanel() {
         if (!b) return;
         const v = b.dataset.vnRm;
         if (await saveVenues(savedVenues().filter(x => x !== v), "Venue removed", v)) toast(`Removed ${v} - past shows keep their venue`);
+    });
+}
+
+// ---------- Asset conditions (settings/conditions; built-ins can't be renamed or removed) ----------
+const condUse = name => inventory.filter(a => a.condition === name).length;
+const condColorSelect = (c, attrs) => `<select ${attrs}>${Object.entries(COND_COLORS).map(([k, v]) => `<option value="${k}" ${c === k ? "selected" : ""}>${v}</option>`).join("")}</select>`;
+function conditionsPanelHtml() {
+    return `<h2 class="section-title">Asset conditions</h2>
+    <div class="panel form-stack cond-panel">
+        <p class="muted small">The conditions an asset can have. The 9 built-in ones are used by loans, repairs and checks, so their names are fixed, but you can change their short label and colour. Add your own (e.g. <b>Upgraded</b>) for anything else. <b>Counts as retired</b> hides the asset from Inventory Check rounds and the location tree, like Sold and Decommissioned. Imports match a condition by its name or short label.</p>
+        <div class="table-scroll"><table class="data-table cond-table">
+            <thead><tr><th>Condition</th><th>Short label</th><th>Colour</th><th>Counts as retired</th><th>Assets</th><th></th></tr></thead>
+            <tbody id="cd-list">${conditionList.map(c => {
+                const b = isBuiltinCondition(c.name), n = condUse(c.name);
+                return `<tr data-cd="${esc(c.name)}">
+                    <td><span class="pill ${condClass(c.name)}">${esc(c.name)}</span>${b ? ` <span class="muted small">built-in</span>` : ""}</td>
+                    <td><input type="text" maxlength="12" value="${esc(c.short)}" data-cd-short aria-label="Short label for ${esc(c.name)}"></td>
+                    <td>${condColorSelect(c.color, `data-cd-color aria-label="Colour for ${esc(c.name)}"`)}</td>
+                    <td><input type="checkbox" data-cd-retired ${c.retired ? "checked" : ""} ${b ? "disabled" : ""} aria-label="${esc(c.name)} counts as retired"></td>
+                    <td>${n}</td>
+                    <td class="nowrap">${b ? "" : `<button type="button" class="btn btn-ghost btn-sm" data-cd-rename>Rename</button> <button type="button" class="icon-btn" data-cd-rm aria-label="Remove ${esc(c.name)}">✕</button>`}</td></tr>`;
+            }).join("")}</tbody></table></div>
+        <form id="cd-form" class="cd-add" novalidate>
+            <input type="text" id="cd-name" maxlength="30" placeholder="New condition, e.g. Upgraded" aria-label="New condition">
+            <input type="text" id="cd-short" maxlength="12" placeholder="Short label" aria-label="Short label">
+            ${condColorSelect("warn", `id="cd-color" aria-label="Colour"`)}
+            <label class="check-inline"><input type="checkbox" id="cd-retired"> Counts as retired</label>
+            <button type="submit" class="btn btn-sm">Add condition</button>
+        </form>
+    </div>`;
+}
+const condRow = c => ({ name: c.name, short: c.short, color: c.color, retired: !!c.retired });
+function condNameProblem(name, except) {
+    if (!name) return "Type a name.";
+    if (name.length > 30) return "Keep it under 30 characters.";
+    const slug = condClass(name);
+    if (slug === "cond-") return "Use letters or numbers.";
+    if (conditionList.some(c => c.name !== except && (lc(c.name) === lc(name) || condClass(c.name) === slug))) return `${name} is already on the list.`;
+    return "";
+}
+async function saveConditions(list, action, label, extraOps) {
+    try {
+        await commitOps([...(extraOps || []), { op: "set", col: "settings", id: "conditions", data: { list: list.map(condRow), updatedAt: nowIso(), updatedBy: myEmail() } },
+            makeLog(action, { label }, [], "Asset conditions")]);
+        return true;
+    } catch (er) { toast(friendlyError(er), "err"); return false; }
+}
+function bindConditionsPanel() {
+    $("cd-form").addEventListener("submit", async e => {
+        e.preventDefault();
+        const name = $("cd-name").value.trim().replace(/\s+/g, " ");
+        const bad = condNameProblem(name);
+        if (bad) return toast(bad, "err");
+        const c = { name, short: $("cd-short").value.trim() || name, color: $("cd-color").value, retired: $("cd-retired").checked };
+        if (await saveConditions([...conditionList, c], "Condition added", name)) toast(`Added ${name}`);
+    });
+    $("cd-list").addEventListener("change", async e => {
+        const tr = e.target.closest("[data-cd]");
+        if (!tr) return;
+        const name = tr.dataset.cd;
+        const list = conditionList.map(c => c.name !== name ? c : {
+            ...c, short: tr.querySelector("[data-cd-short]").value.trim() || c.name, color: tr.querySelector("[data-cd-color]").value,
+            retired: isBuiltinCondition(name) ? c.retired : tr.querySelector("[data-cd-retired]").checked });
+        if (await saveConditions(list, "Condition changed", name)) toast(`${name} updated`);
+    });
+    $("cd-list").addEventListener("click", async e => {
+        const tr = e.target.closest("[data-cd]");
+        if (!tr || isBuiltinCondition(tr.dataset.cd)) return;
+        const name = tr.dataset.cd, n = condUse(name);
+        if (e.target.closest("[data-cd-rm]")) {
+            if (n) return toast(`${plural(n, "asset")} still ${n === 1 ? "has" : "have"} ${name}. Change ${n === 1 ? "it" : "them"} to another condition first.`, "err");
+            if (!(await uiConfirm({ title: `Remove ${name}?`, confirmText: "Remove", message: "No asset has this condition. Past records that mention it keep the text." }))) return;
+            if (await saveConditions(conditionList.filter(c => c.name !== name), "Condition removed", name)) toast(`Removed ${name}`);
+            return;
+        }
+        if (e.target.closest("[data-cd-rename]")) {
+            const next = await uiConfirm({ title: `Rename ${name}`, confirmText: "Rename",
+                message: n ? `${plural(n, "asset")} with ${name} will change to the new name too.` : "",
+                input: { label: "New name", value: name, required: true, validate: v => v === name ? "Type a different name." : condNameProblem(v.replace(/\s+/g, " "), name) } });
+            if (!next) return;
+            const to = next.replace(/\s+/g, " ");
+            const assetOps = inventory.filter(a => a.condition === name).map(a => ({ op: "update", col: "inventory", id: a.id, data: { condition: to } }));
+            const list = conditionList.map(c => c.name !== name ? c : { ...c, name: to, short: c.short === name ? to : c.short });
+            if (await saveConditions(list, "Condition renamed", `${name} → ${to}`, assetOps)) toast(`Renamed to ${to}${n ? ` on ${plural(n, "asset")}` : ""}`);
+        }
     });
 }
 

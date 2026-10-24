@@ -1,4 +1,4 @@
-# Showbase / STAR Inventory - Asset System (v5.1)
+# Showbase / STAR Inventory - Asset System (v5.2)
 
 A live inventory app for a production / AV team. **Firebase Auth + Firestore** hold the data and logins,
 every change is also pushed **one-way to Google Sheets** as a backup, and the site is a static page hosted on **GitHub Pages**.
@@ -14,7 +14,19 @@ Try it with no setup: open `public/index.html?demo` (offline sample data, quick 
 
 ---
 
-## What's new in v5.1 - Log History and people list read less
+## What's new in v5.2 - asset conditions you can edit
+
+| Area | Change |
+|---|---|
+| Asset conditions | Admins edit the condition list in **Branding › Asset conditions**, the same way as show venues. The 9 built-in conditions (Available, Deployed, Faulty, On Repair, On Loan, Missing, Decommissioned, To Check, Sold) drive loans, repairs and checks, so their names are fixed, but their **short label** and **colour** can change. Admins can **add** their own (e.g. **Upgraded**: in use, due for replacement), each with a short label, a colour and a **Counts as retired** tick (retired assets are left out of Inventory Check rounds and the location tree, like Sold and Decommissioned). An added condition can be **renamed** (assets with it move to the new name) and **removed** once no asset has it. The list is one record, `settings/conditions` (1 read per app open). Changes show up for everyone straight away. |
+| Import | A CSV's Condition column matches any condition on the list (built-in or added), by **name or short label**, ignoring upper/lower case. Anything else still becomes **To Check**, and a blank cell becomes **Available**. Add a new condition in the app **before** importing rows that use it. |
+| Rules | New rule for `settings/conditions`: every active user can read it, and only Admins can change it. **203 rule checks pass.** |
+
+**Upgrading from v5.1:** publish **firestore.rules** again (`npx firebase deploy --only firestore:rules`) and upload the changed site files (`public/js/core.js`, `admin.js`, `inventory.js`, `shell.js`, `public/css/components.css`). There's nothing to build, and the Apps Scripts don't change.
+
+---
+
+## What was new in v5.1 - Log History and people list read less
 
 | Area | Change |
 |---|---|
@@ -165,6 +177,7 @@ The app now feeds **3 Google Sheets**: inventory backup (one-way), availability 
 |---|---|---|
 | `settings/app` | `appName`, `logo` (resized image, ≤ ~300 KB) | Admin (anyone can read, for the sign-in screen) |
 | `settings/roles` | Co-Admin and Member templates (features, rows, columns) | Admin |
+| `settings/conditions` | `list[]` of `{name, short, color, retired}`: built-ins + Admins' own conditions | Everyone active reads · Admin writes |
 | `settings/venues` | `list[]` of show venues | Admin · people who can sign out may only **add** |
 | `users/{uid}` | `casualId`, `mustChangePassword` (+ `tempPasswordSetAt/By`, `passwordChangedAt`), `role`, `status`, `isPrimary`, `perm{module:{feature}}`, `viewCols`, `editCols`, `viewCats`, `editCats`, `updatedAt` (stamped on every save except last seen) | Admin (self: name / last seen; Casual ID set at sign-up, Admin-only after) |
 | `inventory/{id}` | Asset fields, `kind` (detailed / general), `qty` (general), `yearOfPurchase`, + `wfCol/wfRef/wfStep` tag on workflow moves | Edit rights · workflows · Admin |
@@ -292,9 +305,9 @@ Admin always has full access. Everything below is per person, starting from the 
 ## Testing
 ```bash
 npm run serve           # http://localhost:8765/?demo
-npm run test:rules      # 197 security-rule checks on the Firestore emulator (needs Java)
+npm run test:rules      # 203 security-rule checks on the Firestore emulator (needs Java)
 pip install playwright && python3 -m playwright install chromium
-npm run test:e2e        # 234 browser checks in demo mode (both themes) (needs `npm run serve` running)
+npm run test:e2e        # 248 browser checks in demo mode (both themes) (needs `npm run serve` running)
 npm run test:shows      # 23 checks of the Shows Sheet + booking emails script against a mock Sheet + Firestore
 npm run test:bundles    # 22 checks of the bundle logic (no browser needed)
 npm run test:people     # 15 checks of the people copy (no browser needed)

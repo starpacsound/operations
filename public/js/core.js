@@ -4,18 +4,49 @@
 // =====================================================================
 
 // ---------- Domain constants ----------
-const CONDITIONS = ["Available", "Deployed", "Faulty", "On Repair", "On Loan", "Missing", "Decommissioned", "To Check", "Sold"];
-const RETIRED = ["Sold", "Decommissioned"];
-const COND_SHORT = {
-    "Available": "Avail", "Deployed": "Deployed", "Faulty": "Faulty", "On Repair": "Repair", "On Loan": "Loan",
-    "Missing": "Missing", "Decommissioned": "Decom", "To Check": "To Check", "Sold": "Sold"
-};
+// Asset conditions. The 9 built-in ones drive workflows (loans, repairs, checks), so their names are fixed;
+// Admins can add their own in Branding › Asset conditions (settings/conditions, 1 read). See applyConditions().
+const BUILTIN_CONDITIONS = [
+    { name: "Available", short: "Avail", color: "ok" }, { name: "Deployed", short: "Deployed", color: "info" },
+    { name: "Faulty", short: "Faulty", color: "bad" }, { name: "On Repair", short: "Repair", color: "cyan" },
+    { name: "On Loan", short: "Loan", color: "warn" }, { name: "Missing", short: "Missing", color: "rose" },
+    { name: "Decommissioned", short: "Decom", color: "neutral", retired: true }, { name: "To Check", short: "To Check", color: "violet" },
+    { name: "Sold", short: "Sold", color: "neutral-2", retired: true }
+];
+// Colours offered for a condition: theme tokens, so they suit light and dark mode.
+const COND_COLORS = { ok: "Green", info: "Blue", bad: "Red", cyan: "Teal", warn: "Amber", rose: "Pink", violet: "Purple", neutral: "Grey", "neutral-2": "Slate" };
+let conditionList = BUILTIN_CONDITIONS.map(c => ({ ...c }));
+let CONDITIONS = conditionList.map(c => c.name);
+let RETIRED = conditionList.filter(c => c.retired).map(c => c.name);
+let COND_SHORT = Object.fromEntries(conditionList.map(c => [c.name, c.short]));
+const isBuiltinCondition = name => BUILTIN_CONDITIONS.some(c => c.name === name);
 const LOG_TYPES = ["General", "Preventative maintenance", "Fault", "Update", "Repair"];
 const DEFAULT_CATEGORIES = ["Wired Mics", "Wireless Mics", "Speakers", "Mixing Consoles", "Cables", "Accessories"];
 const LOCATION_KEYS = ["itemSpace", "itemLocation"];
 const OPEN_LOAN = ["approved", "collected", "returnRequested"];
 
 const condClass = c => "cond-" + String(c).toLowerCase().replace(/[^a-z0-9]+/g, "-");
+
+// Use the saved condition list (settings/conditions). Built-ins keep their names and retired flag;
+// only their short label and colour can change. Missing built-ins are put back.
+function applyConditions(doc) {
+    const saved = (doc && Array.isArray(doc.list)) ? doc.list.filter(c => c && c.name) : [];
+    const list = [];
+    saved.forEach(c => {
+        const b = BUILTIN_CONDITIONS.find(x => x.name === c.name);
+        if (list.some(x => x.name === c.name)) return;
+        list.push({ name: c.name, short: String(c.short || (b && b.short) || c.name), color: COND_COLORS[c.color] ? c.color : (b ? b.color : "neutral"),
+            retired: b ? !!b.retired : !!c.retired });
+    });
+    BUILTIN_CONDITIONS.forEach(b => { if (!list.some(x => x.name === b.name)) list.push({ ...b, retired: !!b.retired }); });
+    conditionList = list;
+    CONDITIONS = list.map(c => c.name);
+    RETIRED = list.filter(c => c.retired).map(c => c.name);
+    COND_SHORT = Object.fromEntries(list.map(c => [c.name, c.short]));
+    let st = document.getElementById("cond-style");
+    if (!st) { st = document.createElement("style"); st.id = "cond-style"; document.head.appendChild(st); }
+    st.textContent = list.map(c => `.${condClass(c.name)} { --c: var(--${c.color}); }`).join("\n");
+}
 const typeClass = t => "lt-" + String(t).toLowerCase().split(" ")[0];
 
 // ---------- State ----------
@@ -34,7 +65,7 @@ let users = [];
 let availMine = [];       // my availability docs (all months)
 let availGrid = [];
 let reminders = [];       // "please fill in your availability" requests (reminders/{id})       // everyone's docs for the month shown in the team grid
-let settings = { app: null, roles: null, venues: null, availability: null, rosterLists: null };
+let settings = { app: null, roles: null, venues: null, conditions: null, availability: null, rosterLists: null };
 
 // ---------- Venue colours: one fixed colour per show venue, used on every page ----------
 // Stored in settings/venues.colors { venue: "#rrggbb" } so it never shifts when venues are added
@@ -300,7 +331,7 @@ const LOG_SKIP_BOOKINGS = ["Soft booked", "Booking confirmed", "Booking cleared"
     "Availability reminder sent", "Show created", "Show deleted", "Show details changed", "Maintenance call created", "Maintenance call deleted"];
 const LOG_SKIP = new Set([...LOG_SKIP_BOOKINGS,
     "Loan requested", "Loan cancelled", "Loan return started", "Discrepancy reported", "Check round started",
-    "Password changed", "Branding updated", "Venue added", "Venue removed", "Venue colour changed",
+    "Password changed", "Branding updated", "Venue added", "Venue removed", "Venue colour changed", "Condition added", "Condition changed", "Condition removed",
     "Inventory bundles built", "Inventory bundles rebuilt", "Booking emails turned on", "Booking emails turned off"]);
 const logWanted = action => !LOG_SKIP.has(String(action || ""));
 const keepUsefulLogs = ops => ops.filter(o => o.col !== "logs" || o.op !== "set" || logWanted(o.data && o.data.action));

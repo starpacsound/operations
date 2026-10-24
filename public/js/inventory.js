@@ -640,7 +640,10 @@ function csvRowsToItems(rows) {
         const rec = {};
         fields.forEach((f, i) => { if (f) rec[f] = (cols[i] || "").trim(); });
         if (!rec.model && !rec.brand) { skipped++; return; }
-        let cond = CONDITIONS.find(c => c.toLowerCase() === lc(rec.condition).trim());
+        // Any condition on the list (built-in or added by an Admin), by name or short label; unknown ones become To Check.
+        const want = lc(rec.condition).trim();
+        let cond = conditionList.find(c => lc(c.name) === want) || conditionList.find(c => lc(c.short) === want);
+        cond = cond && cond.name;
         if (!cond) { cond = rec.condition ? "To Check" : "Available"; if (rec.condition) fixedCondition++; }
         const qty = parseInt(rec.qty, 10);
         const general = /^gen/i.test(rec.kind || "") || (qty > 1 && !rec.serialNo && !rec.assetNo);

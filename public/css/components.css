@@ -482,6 +482,11 @@ input[data-combo]:not([readonly]):not(:disabled) { background-image: linear-grad
 .acc-state.dirty { color: var(--warn); }
 .venue-panel { max-width: 760px; }
 .vn-add { display: flex; gap: .5rem; }
+.cd-add { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
+.cd-add #cd-name { flex: 2 1 12rem; }
+.cd-add #cd-short { flex: 1 1 7rem; }
+.cd-add select { width: auto; flex: 0 0 auto; }
+.cond-table input[type=text] { width: 8rem; }
 .vn-add input { flex: 1; }
 .venue-panel .cat-box .icon-btn { padding: 0 .15rem; font-size: .7rem; line-height: 1; }
 .pwc-form { text-align: left; margin-top: .8rem; width: 100%; align-self: stretch; }

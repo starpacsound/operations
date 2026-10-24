@@ -108,7 +108,7 @@ function teardown() {
     stopData();
     if (profileUnsub) { profileUnsub(); profileUnsub = null; }
     profile = null; inventory = []; tickets = []; loans = []; shows = []; availMine = []; reminders = []; askToastShown = false; availMonth = ""; availTab = "mine"; crewRoleMap = {}; myJobs = []; stopAvailGrid(); stopMonthJobs(); settings.rosterLists = null; settings.availability = null; checks = {}; audits = []; discrepancies = []; logs = []; users = [];
-    settings.roles = null; settings.venues = null; selectedRound = null;
+    settings.roles = null; settings.venues = null; settings.conditions = null; applyConditions(null); selectedRound = null;
     appRunning = false; permKey = ""; invLoaded = false; editMode = false; brandDraft = null;
     openDrawers.clear();
     closeModal(); closeImportModal(); closeDynModal();
@@ -312,6 +312,8 @@ function startData() {
 
     dataUnsubs.push(store.watchDoc("settings", "roles", d => { settings.roles = d; if (currentView === "users") renderUsers(); }, () => {}));
     dataUnsubs.push(store.watchDoc("settings", "venues", d => { settings.venues = d; if (currentView === "branding") renderBranding(); }, () => {}));
+    // Asset conditions: built-ins + the Admins' own (1 read).
+    dataUnsubs.push(store.watchDoc("settings", "conditions", d => { settings.conditions = d; applyConditions(d); fillConditionSelects(); requestRender(); }, () => {}));
     // Maintenance: people who only submit see their own tickets (the rules enforce this).
     const OPEN_STAGES = ["request", "confirmed", "repairing"];
     const allMaint = can("maintenance", "viewAll") || can("maintenance", "viewWork") || can("maintenance", "verify") || can("maintenance", "repair");
@@ -519,14 +521,23 @@ function initTheme() {
     applyThemeUi();
 }
 
+// The condition dropdowns that live in the page (filter + asset form); rebuilt when the list changes.
+function fillConditionSelects() {
+    const f = $("filter-condition"), form = $("form-condition");
+    const keep = [f.value, form.value];
+    const opts = CONDITIONS.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join("");
+    f.innerHTML = `<option value="ALL">All conditions</option>` + opts;
+    form.innerHTML = opts;
+    if (keep[0] && [...f.options].some(o => o.value === keep[0])) f.value = keep[0];
+    if (keep[1] && [...form.options].some(o => o.value === keep[1])) form.value = keep[1];
+}
+
 // =====================================================================
 // BOOT
 // =====================================================================
 function boot() {
     initTheme();
-    const condOpts = CONDITIONS.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join("");
-    $("filter-condition").innerHTML = `<option value="ALL">All conditions</option>` + condOpts;
-    $("form-condition").innerHTML = condOpts;
+    fillConditionSelects();
 
     Combo.init();
     registerComboSources();
