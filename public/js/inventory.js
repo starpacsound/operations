@@ -666,46 +666,101 @@ function openImportModal() {
     $("file-input-label").textContent = "Click to choose a CSV file";
     document.querySelector('input[name="importMode"][value="append"]').checked = true;
     document.querySelector('input[name="importMode"][value="replace"]').disabled = !isAdmin();
-    importErr("");
+    importErr(""); importProgress("");
     $("import-modal").classList.remove("hidden");
 }
-function closeImportModal() { $("import-modal").classList.add("hidden"); }
+function closeImportModal(force) { if (importRunning && !force) return; $("import-modal").classList.add("hidden"); }
 function handleFileSelect(e) { const f = e.target.files[0]; if (f) $("file-input-label").textContent = f.name; }
 
+// Each imported row gets an id made from its content (and how many identical rows came before it in the file),
+// so importing the same file again overwrites those assets instead of adding duplicates. That makes a stopped
+// import safe to finish: just import the same file again.
+function importRowId(r, nth) {
+    const key = ["kind", "category", "brand", "model", "description", "code", "serialNo", "assetNo", "internalAssetNo", "itemSpace", "itemLocation", "condition", "yearOfPurchase", "remarks", "qty"]
+        .map(k => String(r[k] === undefined ? "" : r[k]).trim().toLowerCase()).join("\u0001");
+    let h1 = 0x811c9dc5, h2 = 0x01000193;
+    for (let i = 0; i < key.length; i++) {
+        const c = key.charCodeAt(i);
+        h1 = Math.imul(h1 ^ c, 0x01000193) >>> 0;
+        h2 = Math.imul(h2 ^ c, 0x5bd1e995) >>> 0;
+    }
+    return `imp-${h1.toString(36)}${h2.toString(36)}-${nth}`;
+}
+function importIds(items) {
+    const seen = new Map();
+    return items.map(r => {
+        const base = importRowId(r, 0);
+        const n = seen.get(base) || 0;
+        seen.set(base, n + 1);
+        return n ? importRowId(r, n) : base;
+    });
+}
+
+let importRunning = false;
+const importProgress = m => { const p = $("import-progress"); p.textContent = m || ""; p.classList.toggle("hidden", !m); };
+function setImportBusy(on) {
+    importRunning = on;
+    $("import-go").disabled = on;
+    $("import-go").textContent = on ? "Importing…" : "Import";
+    $("import-cancel").disabled = on;
+    document.querySelectorAll('#import-modal input, #import-modal .icon-btn').forEach(el => { el.disabled = on; });
+    if (!on) document.querySelector('input[name="importMode"][value="replace"]').disabled = !isAdmin();
+}
+// Leaving or reloading the page stops an import part-way: ask first.
+window.addEventListener("beforeunload", e => { if (importRunning) { e.preventDefault(); e.returnValue = ""; } });
+
 async function parseCSVAndImport() {
+    if (importRunning) return;                 // a second click while saving would run the import twice
     if (!can("catalogue", "import") || !can("catalogue", "addDetailed")) return;
     const file = $("csv-file-input").files[0];
     if (!file) return importErr("Choose a CSV file first.");
     const replace = document.querySelector('input[name="importMode"]:checked').value === "replace";
     if (replace && !isAdmin()) return importErr("Only an Admin can replace the whole database.");
-    let text;
-    try { text = await file.text(); } catch (err) { return importErr("Couldn't read that file."); }
-    const rows = parseCSV(text);
-    if (rows.length < 2) return importErr("The CSV is empty or has no data rows.");
-    const { items, skipped, fixedCondition } = csvRowsToItems(rows);
-    if (!items.length) return importErr("No valid rows found (each row needs at least a brand or model).");
-    if (items.some(isGeneral) && !can("catalogue", "addGeneral")) return importErr("This file has general (bulk) rows, and you can't add general assets.");
-    if (!isAdmin() && pList("editCats").length) {
-        const bad = items.filter(i => !pList("editCats").includes(i.category));
-        if (bad.length) return importErr(`${bad.length} row(s) are in categories you can't add to (e.g. "${bad[0].category}").`);
-    }
-    if (replace && !(await uiConfirm({ title: "Replace all inventory?", danger: true, confirmText: "Replace",
-        message: `This replaces ALL ${inventory.length} existing assets with ${items.length} imported rows.` }))) return;
-
-    const stamp = meta();
-    const ops = items.map(r => ({ op: "set", col: "inventory", id: store.newId("inventory"), data: { ...r, ...stamp } }));
-    if (replace) inventory.forEach(it => ops.push({ op: "delete", col: "inventory", id: it.id }));
-    ops.push(makeLog(replace ? "Inventory replaced (import)" : "Assets imported", { label: file.name }, [],
-        `${items.length} rows from ${file.name}${replace ? `, ${inventory.length} old assets removed` : ""}`));
+    setImportBusy(true);
+    importErr(""); importProgress("Reading the file…");
     try {
-        await commitOps(ops);
-        closeImportModal();
+        let text;
+        try { text = await file.text(); } catch (err) { return importErr("Couldn't read that file."); }
+        const rows = parseCSV(text);
+        if (rows.length < 2) return importErr("The CSV is empty or has no data rows.");
+        const { items, skipped, fixedCondition } = csvRowsToItems(rows);
+        if (!items.length) return importErr("No valid rows found (each row needs at least a brand or model).");
+        if (items.some(isGeneral) && !can("catalogue", "addGeneral")) return importErr("This file has general (bulk) rows, and you can't add general assets.");
+        if (!isAdmin() && pList("editCats").length) {
+            const bad = items.filter(i => !pList("editCats").includes(i.category));
+            if (bad.length) return importErr(`${bad.length} row(s) are in categories you can't add to (e.g. "${bad[0].category}").`);
+        }
+        const ids = importIds(items);
+        const idSet = new Set(ids);
+        const already = inventory.filter(a => idSet.has(a.id)).length;
+        const gone = replace ? inventory.filter(a => !idSet.has(a.id)) : [];
+        importProgress("");
+        if (replace && !(await uiConfirm({ title: "Replace all inventory?", danger: true, confirmText: "Replace",
+            message: `This removes ${plural(gone.length, "asset")} that ${gone.length === 1 ? "isn't" : "aren't"} in this file and saves its ${items.length} rows${already ? ` (${already} are already in from an earlier import of this file and are just overwritten)` : ""}.\nIf it stops part-way, run the same Replace again: it finishes the job without duplicates.` }))) return;
+        if (!replace && already && !(await uiConfirm({ title: "Some rows are already in", confirmText: "Import",
+            message: `${already} of the ${items.length} rows were imported from this file before. They'll be overwritten with the file's values, not added twice. ${items.length - already} new rows will be added.` }))) return;
+
+        const stamp = meta();
+        const ops = items.map((r, i) => ({ op: "set", col: "inventory", id: ids[i], data: { ...r, ...stamp } }));
+        gone.forEach(it => ops.push({ op: "delete", col: "inventory", id: it.id }));
+        ops.push(makeLog(replace ? "Inventory replaced (import)" : "Assets imported", { label: file.name }, [],
+            `${items.length} rows from ${file.name}${replace ? `, ${gone.length} old assets removed` : ""}`));
+        const total = ops.filter(o => o.col === "inventory").length;
+        importProgress(`Saving 0 of ${total.toLocaleString()}… Keep this page open.`);
+        await commitOps(ops, { onProgress: (done, all) => importProgress(`Saving ${done.toLocaleString()} of ${all.toLocaleString()}… Keep this page open.`) });
+        importProgress("");
+        closeImportModal(true);
         let msg = `Imported ${items.length} rows`;
+        if (replace && gone.length) msg += `, removed ${gone.length} old`;
         if (skipped) msg += `, skipped ${skipped} blank`;
         if (fixedCondition) msg += `, ${fixedCondition} unknown condition(s) set to To Check`;
         toast(msg);
     } catch (err) {
         console.error(err);
-        importErr("Import failed: " + friendlyError(err));
+        const p = $("import-progress").textContent.match(/Saving ([\d,]+) of ([\d,]+)/);
+        importProgress("");
+        importErr(`Import stopped${p ? ` after ${p[1]} of ${p[2]}` : ""}: ${friendlyError(err)} Nothing is duplicated if you import the same file again, so run it again to finish.`);
+    } finally {
+        setImportBusy(false);
     }
 }

@@ -1,4 +1,4 @@
-# Showbase / STAR Inventory - Asset System (v5.2)
+# Showbase / STAR Inventory - Asset System (v5.2.1)
 
 A live inventory app for a production / AV team. **Firebase Auth + Firestore** hold the data and logins,
 every change is also pushed **one-way to Google Sheets** as a backup, and the site is a static page hosted on **GitHub Pages**.
@@ -14,7 +14,21 @@ Try it with no setup: open `public/index.html?demo` (offline sample data, quick 
 
 ---
 
-## What's new in v5.2 - asset conditions you can edit
+## What's new in v5.2.1 - safer big imports
+
+| Area | Change |
+|---|---|
+| One import at a time | While an import runs, the **Import** button says *Importing…* and can't be pressed again, the dialog can't be closed, and the browser asks before you leave or reload the page. Before this, a second click started a second import alongside the first, which caused duplicates. |
+| Progress | The dialog shows **"Saving 1,200 of 4,041… Keep this page open."** It closes with a summary when everything is saved. |
+| Safe to run again | Each imported row gets an id made from its contents, so **importing the same file again overwrites those rows instead of adding duplicates**. If an import stops part-way (lost connection, page closed, daily limit), it says how far it got, and you just import the same file again to finish. The app tells you first when some rows are already in. Rows imported before v5.2.1 have random ids, so they aren't matched. Use **Replace all** once to clean them up. |
+| Replace all | Removes every asset that **isn't in the file** and saves the file's rows. If it stops part-way, run the same Replace again and it finishes the job. |
+| Big categories | A bundle now holds up to **800** assets (was 2,000), and `firestore.indexes.json` turns off indexing for the bundle and saved-copy maps. Firestore allows 40,000 index entries per record, and every field of every asset counts about 2, so a category of about 1,000+ assets would have failed to save. Deploy indexes: `npx firebase deploy --only firestore:indexes`. |
+
+**Upgrading from v5.2:** deploy the indexes (`npx firebase deploy --only firestore:indexes`; this adds single-field exemptions and builds nothing heavy), then upload `public/index.html`, `public/js/bundles.js`, `core.js`, `inventory.js`, `store.js` and `public/css/components.css`. No rules or Apps Script changes.
+
+---
+
+## What was new in v5.2 - asset conditions you can edit
 
 | Area | Change |
 |---|---|
@@ -194,7 +208,7 @@ The app now feeds **3 Google Sheets**: inventory backup (one-way), availability 
 | `reminders/{id}` | `month`, `uids[]`, `byUid`, `byName`, `at` - an availability reminder | Bookers create · members read the ones naming them · can't be edited |
 | `settings/availability` | `emailOnBooking` | Admin |
 | `logs/{id}` | Append-only audit trail | Everyone appends their own; primary Admin resets |
-| `invBundles/{bid}` | `cat`, `v`, `items{assetId: asset}`, `last[]` - copies of up to 2,000 assets of one category | Saved automatically with every inventory save (each entry must match the asset) · Admin builds |
+| `invBundles/{bid}` | `cat`, `v`, `items{assetId: asset}`, `last[]` - copies of up to 800 assets of one category | Saved automatically with every inventory save (each entry must match the asset) · Admin builds |
 | `invMeta/changes` | `seq`, `bundles{bid: {cat, v, n, sz}}`, `recent[{s, b, id}]` (last 300 edits) | Moves on by one with every inventory save · Admin builds |
 | `availMonths/{YYYY-MM}` | `rows{availDocId: doc}`, `mark`, `builtAt`, `n` - one copy of a whole month for the team grid | Admins / Co-Admins who can see everyone's availability |
 | `peopleCopy/all`, `peopleCopy/active` | `rows{uid: profile}`, `mark`, `builtAt`, `n` - one copy of every profile (all) or of active people (active) | all: Admins · active: Admins and bookers |
@@ -307,7 +321,7 @@ Admin always has full access. Everything below is per person, starting from the 
 npm run serve           # http://localhost:8765/?demo
 npm run test:rules      # 203 security-rule checks on the Firestore emulator (needs Java)
 pip install playwright && python3 -m playwright install chromium
-npm run test:e2e        # 248 browser checks in demo mode (both themes) (needs `npm run serve` running)
+npm run test:e2e        # 255 browser checks in demo mode (both themes) (needs `npm run serve` running)
 npm run test:shows      # 23 checks of the Shows Sheet + booking emails script against a mock Sheet + Firestore
 npm run test:bundles    # 22 checks of the bundle logic (no browser needed)
 npm run test:people     # 15 checks of the people copy (no browser needed)

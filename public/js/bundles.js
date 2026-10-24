@@ -24,7 +24,9 @@
 // PEOPLE (Admin people list, bookers' active list) works the same way: see people.js.
 // =====================================================================
 const Bundles = (() => {
-    const MAX_ASSETS = 2000;          // per bundle (Firestore caps one record at 1 MiB)
+    // Per bundle. Firestore caps one record at 1 MiB and at 40,000 index entries; every field of every asset
+    // counts about 2 entries unless `items` is exempt from indexing (firestore.indexes.json), so stay well under.
+    const MAX_ASSETS = 800;
     const MAX_BYTES = 900000;         // leave headroom under the 1 MiB limit
     const RECENT_KEEP = 300;          // edits kept in invMeta/changes
     const BULK_PER_BUNDLE = 40;       // more edits than this to one bundle in one save = "re-download it"
@@ -177,9 +179,12 @@ const Bundles = (() => {
 
     // Firestore save of ops that touch inventory: the ops + bundle entries + invMeta/changes in one
     // transaction per chunk. ns = firebase.firestore (for FieldPath / FieldValue).
-    async function commitTx(db, ns, ops) {
+    // onProgress(doneAssets, totalAssets) runs after each transaction (imports show it).
+    async function commitTx(db, ns, ops, onProgress) {
         const FP = (...p) => new ns.FieldPath(...p);
         const metaRef = db.collection("invMeta").doc("changes");
+        const total = ops.filter(o => o.col === "inventory").length;
+        let done = 0;
         for (const part of chunkOps(ops, 400)) {
             await db.runTransaction(async t => {
                 const metaSnap = await t.get(metaRef);
@@ -211,6 +216,8 @@ const Bundles = (() => {
                 });
                 t.set(metaRef, meta);
             });
+            done += part.filter(o => o.col === "inventory").length;
+            if (onProgress) onProgress(done, total);
         }
     }
 

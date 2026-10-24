@@ -29,5 +29,46 @@
       ]
     }
   ],
-  "fieldOverrides": []
+  "fieldOverrides": [
+    {
+      "collectionGroup": "invBundles",
+      "fieldPath": "items",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "invBundles",
+      "fieldPath": "last",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "invMeta",
+      "fieldPath": "bundles",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "invMeta",
+      "fieldPath": "recent",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "peopleCopy",
+      "fieldPath": "rows",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "availMonths",
+      "fieldPath": "rows",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "checkTicks",
+      "fieldPath": "ticks",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "crewRoles",
+      "fieldPath": "roles",
+      "indexes": []
+    }
+  ]
 }

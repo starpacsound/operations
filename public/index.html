@@ -486,10 +486,11 @@
                     <label class="radio-row"><input type="radio" name="importMode" value="append" checked> Add to the current inventory</label>
                     <label class="radio-row"><input type="radio" name="importMode" value="replace"> Replace all current data <span class="hint">Admin only</span></label>
                 </div>
+                <p id="import-progress" class="import-progress hidden" role="status" aria-live="polite"></p>
                 <p id="import-error" class="error-msg hidden"></p>
                 <div class="form-actions">
-                    <button type="button" class="btn btn-ghost" onclick="closeImportModal()">Cancel</button>
-                    <button type="button" class="btn btn-primary" onclick="parseCSVAndImport()">Import</button>
+                    <button type="button" class="btn btn-ghost" id="import-cancel" onclick="closeImportModal()">Cancel</button>
+                    <button type="button" class="btn btn-primary" id="import-go" onclick="parseCSVAndImport()">Import</button>
                 </div>
             </div>
         </div>

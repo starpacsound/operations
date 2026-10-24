@@ -99,9 +99,9 @@ function createFirebaseStore() {
         // Atomic up to 450 ops (Firestore caps a batch at 500); bigger jobs (imports) are chunked.
         // Saves that touch inventory also update the asset's bundle and invMeta/changes, in one transaction.
         // Saves to users/{uid} also stamp updatedAt and keep the people copies right (people.js).
-        async commit(ops) {
+        async commit(ops, opts) {
             ops = People.stamp(ops);
-            if (ops.some(o => o.col === "inventory")) await commitWithBundles(ops);
+            if (ops.some(o => o.col === "inventory")) await commitWithBundles(ops, opts && opts.onProgress);
             else await store.commitPlain(ops);
             if (ops.some(o => o.col === "users")) await People.afterCommit(store, ops);
         },
@@ -125,7 +125,7 @@ function createFirebaseStore() {
         }
     };
 
-    const commitWithBundles = ops => Bundles.commitTx(db, firebase.firestore, ops);
+    const commitWithBundles = (ops, onProgress) => Bundles.commitTx(db, firebase.firestore, ops, onProgress);
     return store;
 }
 
@@ -455,8 +455,10 @@ function createDemoStore() {
         count: async (col, q) => run(col, q).length,
         async getDoc(col, id) { const d = (data[col] || {})[id]; return d ? { id, ...clone(d) } : null; },
         newId: col => `${col.slice(0, 3)}-${Date.now().toString(36)}-${(++seq).toString(36)}`,
-        async commit(ops) {
+        async commit(ops, opts) {
             ops = People.stamp(ops);
+            const onProgress = opts && opts.onProgress, total = ops.filter(o => o.col === "inventory").length;
+            let done = 0;
             if (!ops.some(o => o.col === "inventory")) {
                 await store.commitPlain(ops);
                 if (ops.some(o => o.col === "users")) await People.afterCommit(store, ops);
@@ -479,6 +481,8 @@ function createDemoStore() {
                     extra.push({ op: "set", col: "invMeta", id: "changes", data: nextMeta });
                 }
                 await store.commitPlain([...part, ...extra]);
+                done += part.filter(o => o.col === "inventory").length;
+                if (onProgress) { onProgress(done, total); await new Promise(r => setTimeout(r, 0)); }
             }
         },
         async commitPlain(ops) {

@@ -336,11 +336,12 @@ const LOG_SKIP = new Set([...LOG_SKIP_BOOKINGS,
 const logWanted = action => !LOG_SKIP.has(String(action || ""));
 const keepUsefulLogs = ops => ops.filter(o => o.col !== "logs" || o.op !== "set" || logWanted(o.data && o.data.action));
 
-async function commitOps(ops) {
+// opts.onProgress(doneAssets, totalAssets): called after each saved chunk of a big inventory save (imports).
+async function commitOps(ops, opts) {
     ops = keepUsefulLogs(ops);
     if (!ops.length) return;
     const backupItems = Backup.fromOps(ops); // built before the snapshot listener replaces the cache
-    await store.commit(ops);
+    await store.commit(ops, opts);
     Backup.push(backupItems);
 }
 
