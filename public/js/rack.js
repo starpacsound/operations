@@ -36,7 +36,9 @@ function rackItems(mode) {
 // Assets with no Item Space / Item Location are grouped under "TBC" (to be confirmed).
 const UNASSIGNED = "TBC";
 const tbcTag = v => v === UNASSIGNED ? ` <span class="tbc-tag" title="No item space / location recorded yet - to be confirmed">to be confirmed</span>` : "";
-const byNum = (a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" });
+// One shared collator: localeCompare with options builds a new one per call, which was slow over thousands of assets.
+const numCollator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+const byNum = (a, b) => numCollator.compare(a, b);
 
 function buildTree(items) {
     const tree = new Map();
@@ -53,17 +55,33 @@ function buildTree(items) {
     return { tree, sortKeys };
 }
 
+// Searching opens every matching location and category, but only for a manageable number of matches:
+// opening thousands of rows at once froze the page (e.g. typing one letter with 4,000 assets).
+const SEARCH_OPEN_MAX = 150;
+// Rows drawn per open category until "Show all" is pressed.
+const CAT_ROWS = 100;
+const showAllCats = { rack: new Set(), check: new Set() };
+// Typing waits for a short pause before redrawing.
+const debounce = (fn, ms) => { let t = null; return () => { clearTimeout(t); t = setTimeout(fn, ms); }; };
+const renderRackSoon = debounce(() => renderRack(), 250);
+const renderCheckSoon = debounce(() => renderCheck(), 250);
+
 function nodeOpen(mode, key, def) {
     const m = rackState[mode];
     return m.has(key) ? m.get(key) : def;
 }
 
+const EXPAND_ALL_MAX = 1000;
 function rackExpandAll(mode, open) {
-    rackItems(mode).forEach(a => {
+    const items = rackItems(mode);
+    // Opening every category of thousands of assets would freeze the page: open the locations only.
+    const cats = !open || items.length <= EXPAND_ALL_MAX;
+    items.forEach(a => {
         const s = dv(a.itemSpace) || UNASSIGNED, l = dv(a.itemLocation) || UNASSIGNED, c = a.category || "Uncategorised";
         rackState[mode].set(`L|${s}|${l}`, open);
-        rackState[mode].set(`C|${s}|${l}|${c}`, open);
+        if (cats) rackState[mode].set(`C|${s}|${l}|${c}`, open);
     });
+    if (!cats) toast(`${items.length.toLocaleString()} assets is too many to open at once, so only the locations are open. Pick a space or category, or search, then Expand all.`);
     mode === "rack" ? renderRack() : renderCheck();
 }
 
@@ -88,7 +106,8 @@ function renderTree(mode) {
         host.innerHTML = `<div class="empty-state">${inventory.length ? "Nothing matches these filters." : "No assets yet."}</div>`;
         return;
     }
-    const searching = !!$(`${mode}-search`).value.trim();
+    const searchOn = !!$(`${mode}-search`).value.trim();
+    const searching = searchOn && items.length <= SEARCH_OPEN_MAX;
     const { tree, sortKeys } = buildTree(items);
     const inline = !isCheck && inlineOn();
     const hasGeneral = items.some(isGeneral);
@@ -108,58 +127,84 @@ function renderTree(mode) {
     };
     const headRow = `<tr>${isCheck ? `<th class="leaf-check">✓</th>` : ""}${cols.map((c, i) => (i === nameCol ? `<th>Model</th>` : "") + `<th>${esc(c.label)}</th>`).join("")}${nameCol === cols.length ? "<th>Model</th>" : ""}${isCheck ? "<th>Checked</th>" : ""}<th></th></tr>`;
 
-    host.innerHTML = sortKeys(tree).map(space => {
+    const locCount = [...tree.values()].reduce((n, m) => n + m.size, 0);
+    // Opening a location or category redraws only that location (locHtml), not the whole tree.
+    const ctx = treeCtx[mode] = { mode, isCheck, searching, inline, headRow, leafRow, tree, sortKeys, locDefault: locCount <= LOC_OPEN_MAX };
+    const doneOf = list => isCheck ? list.filter(a => isChecked(a.id)).length : 0;
+    const hint = searchOn && !searching ? `<div class="av-banner search-hint">${items.length.toLocaleString()} matches. Type more to narrow them down, or open a location or category below to see its matches.</div>` : "";
+    host.innerHTML = hint + sortKeys(tree).map(space => {
         const locs = tree.get(space);
         const spaceItems = [...locs.values()].flatMap(m => [...m.values()].flat());
-        const spaceDone = spaceItems.filter(a => isChecked(a.id)).length;
         return `<section class="rack-space">
             <div class="rack-space-head"><h2>${esc(space)}${tbcTag(space)}</h2>
                 <span class="meta">${plural(locs.size, "location")} · ${plural(spaceItems.reduce((n, a) => n + units(a), 0), "unit")}</span>
-                ${isCheck ? progressHtml(spaceDone, spaceItems.length) : ""}</div>
-            ${sortKeys(locs).map(loc => {
-                const cats = locs.get(loc);
-                const locItems = [...cats.values()].flat();
-                const lKey = `L|${space}|${loc}`;
-                const lOpen = searching || nodeOpen(mode, lKey, true);
-                const locDone = locItems.filter(a => isChecked(a.id)).length;
-                return `<div class="rack-loc">
-                    <button type="button" class="rack-loc-head" data-node="${esc(lKey)}" aria-expanded="${lOpen}">
-                        <span class="chev ${lOpen ? "open" : ""}">▶</span>
-                        <span class="loc-name"><span class="crumb">${esc(space)} ›</span> ${esc(loc)}${tbcTag(loc)}</span>
-                        <span class="loc-meta">${plural(locItems.length, "item")} · ${plural(cats.size, "type")}</span>
-                        <span class="loc-right">${isCheck ? progressHtml(locDone, locItems.length) : condMiniBar(locItems)}</span>
-                    </button>
-                    ${lOpen ? `<div class="rack-loc-body">${sortKeys(cats).map(cat => {
-                        const list = cats.get(cat).slice().sort((x, y) => byNum(assetLabel(x), assetLabel(y)));
-                        const cKey = `C|${space}|${loc}|${cat}`;
-                        const cOpen = searching || nodeOpen(mode, cKey, isCheck);
-                        const cDone = list.filter(a => isChecked(a.id)).length;
-                        const cc = {};
-                        list.forEach(a => { cc[a.condition] = (cc[a.condition] || 0) + units(a); });
-                        return `<div class="rack-cat">
-                            <button type="button" class="rack-cat-head" data-node="${esc(cKey)}" aria-expanded="${cOpen}">
-                                <span class="chev ${cOpen ? "open" : ""}">▶</span>${esc(cat)} <span class="count">(${list.reduce((n, a) => n + units(a), 0)})</span>
-                                <span class="pills">${isCheck ? progressHtml(cDone, list.length) : Object.entries(cc).map(([k, v]) => `<span class="pill ${condClass(k)}">${v} ${esc(COND_SHORT[k] || k)}</span>`).join("")}</span>
-                            </button>
-                            ${cOpen ? `<div class="rack-cat-body"><div class="table-scroll"><table class="asset-table leaf-table ${inline ? "inline-on" : ""}">
-                                <thead>${headRow}</thead><tbody>${list.map(leafRow).join("")}</tbody></table></div></div>` : ""}
-                        </div>`;
-                    }).join("")}</div>` : ""}
-                </div>`;
-            }).join("")}
+                ${isCheck ? progressHtml(doneOf(spaceItems), spaceItems.length) : ""}</div>
+            ${sortKeys(locs).map(loc => locHtml(ctx, space, loc)).join("")}
         </section>`;
     }).join("");
+}
+
+// Locations start open when there are only a few; with hundreds the page lists them closed.
+const LOC_OPEN_MAX = 40;
+const treeCtx = { rack: null, check: null };
+function locHtml(ctx, space, loc) {
+    const { mode, isCheck, searching, inline, headRow, leafRow, sortKeys } = ctx;
+    const cats = ctx.tree.get(space).get(loc);
+    const doneOf = list => isCheck ? list.filter(a => isChecked(a.id)).length : 0;
+    const locItems = [...cats.values()].flat();
+    const lKey = `L|${space}|${loc}`;
+    const lOpen = searching || nodeOpen(mode, lKey, ctx.locDefault);
+    return `<div class="rack-loc" data-space="${esc(space)}" data-loc="${esc(loc)}">
+        <button type="button" class="rack-loc-head" data-node="${esc(lKey)}" aria-expanded="${lOpen}">
+            <span class="chev ${lOpen ? "open" : ""}">▶</span>
+            <span class="loc-name"><span class="crumb">${esc(space)} ›</span> ${esc(loc)}${tbcTag(loc)}</span>
+            <span class="loc-meta">${plural(locItems.length, "item")} · ${plural(cats.size, "type")}</span>
+            <span class="loc-right">${isCheck ? progressHtml(doneOf(locItems), locItems.length) : condMiniBar(locItems)}</span>
+        </button>
+        ${lOpen ? `<div class="rack-loc-body">${sortKeys(cats).map(cat => {
+            const cKey = `C|${space}|${loc}|${cat}`;
+            const cOpen = searching || nodeOpen(mode, cKey, isCheck);
+            // Only an open category needs its rows in order.
+            const list = cOpen ? cats.get(cat).map(a => [assetLabel(a), a]).sort((x, y) => byNum(x[0], y[0])).map(x => x[1]) : cats.get(cat);
+            const cc = {};
+            list.forEach(a => { cc[a.condition] = (cc[a.condition] || 0) + units(a); });
+            const all = showAllCats[mode].has(cKey);
+            return `<div class="rack-cat">
+                <button type="button" class="rack-cat-head" data-node="${esc(cKey)}" aria-expanded="${cOpen}">
+                    <span class="chev ${cOpen ? "open" : ""}">▶</span>${esc(cat)} <span class="count">(${list.reduce((n, a) => n + units(a), 0)})</span>
+                    <span class="pills">${isCheck ? progressHtml(doneOf(list), list.length) : Object.entries(cc).map(([k, v]) => `<span class="pill ${condClass(k)}">${v} ${esc(COND_SHORT[k] || k)}</span>`).join("")}</span>
+                </button>
+                ${cOpen ? `<div class="rack-cat-body"><div class="table-scroll"><table class="asset-table leaf-table ${inline ? "inline-on" : ""}">
+                    <thead>${headRow}</thead><tbody>${(all ? list : list.slice(0, CAT_ROWS)).map(leafRow).join("")}</tbody></table></div>
+                    ${list.length > CAT_ROWS && !all ? `<div class="cat-more"><button type="button" class="btn btn-sm" data-cat-all="${esc(cKey)}">Show all ${list.length.toLocaleString()}</button> <span class="muted small">Showing the first ${CAT_ROWS}</span></div>` : ""}</div>` : ""}
+            </div>`;
+        }).join("")}</div>` : ""}
+    </div>`;
+}
+// Redraw just the location an open/close or "Show all" happened in.
+function redrawLoc(mode, el) {
+    const box = el.closest(".rack-loc"), ctx = treeCtx[mode];
+    const locs = ctx && box && ctx.tree.get(box.dataset.space);
+    if (!locs || !locs.has(box.dataset.loc)) return renderTree(mode);
+    box.outerHTML = locHtml(ctx, box.dataset.space, box.dataset.loc);
 }
 
 function renderRack() { renderTree("rack"); }
 
 document.addEventListener("click", e => {
+    const more = e.target.closest("[data-cat-all]");
+    if (more) {
+        const mode = more.closest("#check-container") ? "check" : "rack";
+        showAllCats[mode].add(more.dataset.catAll);
+        redrawLoc(mode, more);
+        return;
+    }
     const node = e.target.closest("[data-node]");
     if (!node) return;
     const mode = node.closest("#check-container") ? "check" : node.closest("#rack-container") ? "rack" : null;
     if (!mode) return;
     rackState[mode].set(node.dataset.node, node.getAttribute("aria-expanded") !== "true");
-    renderTree(mode);
+    redrawLoc(mode, node);
 });
 
 // =====================================================================

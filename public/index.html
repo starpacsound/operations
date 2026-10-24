@@ -226,7 +226,7 @@
                     </div>
                 </div>
                 <div class="filter-bar">
-                    <input type="search" id="rack-search" class="filter-input" oninput="renderRack()" placeholder="Search model, internal no, serial, location…">
+                    <input type="search" id="rack-search" class="filter-input" oninput="renderRackSoon()" placeholder="Search model, internal no, serial, location…">
                     <select id="rack-space" class="filter-select" onchange="renderRack()"><option value="ALL">All spaces</option></select>
                     <select id="rack-category" class="filter-select" onchange="renderRack()"><option value="ALL">All categories</option></select>
                     <label class="check-inline"><input type="checkbox" id="rack-retired" onchange="renderRack()"> Show sold / decommissioned</label>
@@ -252,7 +252,7 @@
                     <div id="check-round" class="round-banner"></div>
                     <div id="check-review"></div>
                     <div class="filter-bar" id="check-filters">
-                        <input type="search" id="check-search" class="filter-input" oninput="renderCheck()" placeholder="Search model, internal no, serial, location…">
+                        <input type="search" id="check-search" class="filter-input" oninput="renderCheckSoon()" placeholder="Search model, internal no, serial, location…">
                         <label class="check-inline"><input type="checkbox" id="check-unchecked" onchange="renderCheck()"> Unchecked only</label>
                         <button type="button" class="btn btn-sm" onclick="rackExpandAll('check', true)">Expand all</button>
                     </div>

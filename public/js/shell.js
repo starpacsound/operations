@@ -396,8 +396,11 @@ function requestRender(force) {
     const typingInZone = a && a.matches && a.matches(".asset-zone input:not([readonly]):not([type=checkbox])");
     if (!force && typingInZone) { pendingRender = true; if (currentView === "catalogue") renderOpsStrip(); return; }
     pendingRender = false;
-    renderView(currentView);
+    if (force) { cancelAnimationFrame(renderFrame); renderFrame = 0; renderView(currentView); return; }
+    // Several updates often arrive together (a save, its bundle, the change log): draw once per frame.
+    if (!renderFrame) renderFrame = requestAnimationFrame(() => { renderFrame = 0; if (profile && appRunning) renderView(currentView); });
 }
+let renderFrame = 0;
 
 function renderView(v) {
     const d = VIEWS[v];
@@ -411,6 +414,8 @@ function renderAll() { renderNavBadges(); requestRender(true); }
 // =====================================================================
 function switchView(view, silent) {
     if (!canOpenView(view)) view = firstView();
+    // Big trees are redrawn on entry anyway; don't keep thousands of hidden rows in the page.
+    if (currentView !== view) ["rack", "check"].forEach(v => { if (v === currentView && v !== view && $(`${v}-container`)) $(`${v}-container`).innerHTML = ""; });
     currentView = view;
     syncTicks();
     const d = VIEWS[view];

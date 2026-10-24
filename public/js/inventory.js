@@ -198,6 +198,10 @@ function renderOpsStrip() {
 
 // ---------- Catalogue table ----------
 const openDrawers = new Set();
+// Models drawn at once: drawing all ~500 model groups of 4,000 assets on every change made the site sluggish.
+const GROUP_PAGE = 100;
+let groupsShown = GROUP_PAGE, groupsKey = "";
+const sortCollator = new Intl.Collator(undefined, { sensitivity: "base" });
 
 function renderCatalogue() {
     renderOpsStrip();
@@ -213,14 +217,19 @@ function renderCatalogue() {
     filtered.forEach(it => { const k = groupKeyOf(it); (groups[k] = groups[k] || []).push(it); });
     const keys = Object.keys(groups).sort((a, b) => {
         if (sortVal.startsWith("brand")) {
-            const cmp = (groups[a][0].brand || "").trim().localeCompare((groups[b][0].brand || "").trim(), undefined, { sensitivity: "base" });
+            const cmp = sortCollator.compare((groups[a][0].brand || "").trim(), (groups[b][0].brand || "").trim());
             if (cmp !== 0) return sortVal.endsWith("_desc") ? -cmp : cmp;
         }
-        return a.localeCompare(b, undefined, { sensitivity: "base" });
+        return sortCollator.compare(a, b);
     });
+    // A new search / filter / sort starts again from the first page of models.
+    const fKey = [$("search-input").value, $("filter-category").value, $("filter-location").value, $("filter-condition").value, $("filter-year").value, sortVal].join("|");
+    if (fKey !== groupsKey) { groupsKey = fKey; groupsShown = GROUP_PAGE; }
+    const shownKeys = keys.slice(0, Math.max(groupsShown, ...keys.map((k, i) => openDrawers.has(k) ? i + 1 : 0)));
 
     const inline = inlineOn();
-    container.innerHTML = keys.map(key => {
+    const more = keys.length - shownKeys.length;
+    container.innerHTML = shownKeys.map(key => {
         const items = groups[key];
         const first = items[0];
         const open = openDrawers.has(key);
@@ -248,8 +257,16 @@ function renderCatalogue() {
             </div>
             ${table}
         </div>`;
-    }).join("");
+    }).join("") + (more > 0 ? `<div class="group-more"><span class="muted small">Showing ${shownKeys.length} of ${keys.length} models. Search or filter to find one faster.</span>
+        <button type="button" class="btn btn-sm" data-groups-more="${GROUP_PAGE}">Show ${Math.min(GROUP_PAGE, more)} more</button>
+        <button type="button" class="btn btn-ghost btn-sm" data-groups-more="all">Show all</button></div>` : "");
 }
+document.addEventListener("click", e => {
+    const b = e.target.closest("[data-groups-more]");
+    if (!b) return;
+    groupsShown = b.dataset.groupsMore === "all" ? Infinity : groupsShown + GROUP_PAGE;
+    renderCatalogue();
+});
 
 function handleSearch() { requestRender(true); }
 

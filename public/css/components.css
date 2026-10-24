@@ -682,3 +682,6 @@ input[data-combo]:not([readonly]):not(:disabled) { background-image: linear-grad
 .ev-run { white-space: pre-wrap; font: .8rem var(--mono, monospace); background: var(--surface-2); padding: .6rem .7rem; border-radius: 8px; margin: 0; }
 
 .import-progress { margin: .75rem 0 0; padding: .55rem .7rem; border-radius: var(--r-sm); background: var(--accent-soft); color: var(--text); font-size: var(--fs-sm); }
+.search-hint { margin-bottom: .75rem; }
+.cat-more { display: flex; align-items: center; gap: .6rem; padding: .5rem .2rem .2rem; }
+.group-more { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem; padding: .9rem .2rem; }

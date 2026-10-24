@@ -1,4 +1,4 @@
-# Showbase / STAR Inventory - Asset System (v5.2.1)
+# Showbase / STAR Inventory - Asset System (v5.2.2)
 
 A live inventory app for a production / AV team. **Firebase Auth + Firestore** hold the data and logins,
 every change is also pushed **one-way to Google Sheets** as a backup, and the site is a static page hosted on **GitHub Pages**.
@@ -14,7 +14,21 @@ Try it with no setup: open `public/index.html?demo` (offline sample data, quick 
 
 ---
 
-## What's new in v5.2.1 - safer big imports
+## What's new in v5.2.2 - Rack Layout stays quick with thousands of assets
+
+| Area | Change |
+|---|---|
+| Rack Layout / Inventory Check search | Searching used to open every matching location and category on every keystroke. With 4,000 assets, typing one letter drew about 4,500 rows and froze the page for over 10 seconds. Now the search waits for a short pause in typing, and it only opens everything when there are **150 matches or fewer**. With more, a note says how many matched, and you open the location or category you want. |
+| Big categories | An open category draws its first **100** rows, with a **Show all** button for the rest. **Expand all** opens only the locations when more than 1,000 assets are showing. |
+| Opening a location / category | Only that location is redrawn, not the whole tree (about 15 ms instead of 150+ with 4,000 assets). With more than 40 locations, they start **closed**, so the page lists them and you open the one you want. |
+| Catalogue | Draws **100 models at a time**, with **Show more** / **Show all** at the bottom (search and filters still cover every asset). Several updates arriving together are drawn once. |
+| Leaving the page | Rack Layout and Inventory Check clear their rows when you switch to another page (they're redrawn when you come back), so thousands of hidden rows don't slow the rest of the site. |
+
+**Upgrading from v5.2.1:** upload `public/index.html`, `public/js/rack.js`, `public/js/inventory.js`, `public/js/shell.js` and `public/css/components.css`. No rules, indexes or Apps Script changes.
+
+---
+
+## What was new in v5.2.1 - safer big imports
 
 | Area | Change |
 |---|---|
@@ -321,7 +335,7 @@ Admin always has full access. Everything below is per person, starting from the 
 npm run serve           # http://localhost:8765/?demo
 npm run test:rules      # 203 security-rule checks on the Firestore emulator (needs Java)
 pip install playwright && python3 -m playwright install chromium
-npm run test:e2e        # 255 browser checks in demo mode (both themes) (needs `npm run serve` running)
+npm run test:e2e        # 263 browser checks in demo mode (both themes) (needs `npm run serve` running)
 npm run test:shows      # 23 checks of the Shows Sheet + booking emails script against a mock Sheet + Firestore
 npm run test:bundles    # 22 checks of the bundle logic (no browser needed)
 npm run test:people     # 15 checks of the people copy (no browser needed)
