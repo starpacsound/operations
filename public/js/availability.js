@@ -206,8 +206,12 @@ function gridRows() {
     const q = lc(availQuery).trim();
     return rows
         .filter(r => (!q || lc(`${r.name} ${r.casualId}`).includes(q)) && (!availRole || r.roles.includes(availRole)) && (!availDay || dayState(r.doc, availDay)))
-        .sort((a, b) => a.name.localeCompare(b.name) || a.casualId.localeCompare(b.casualId));
+        .sort(rosterCmp);
 }
+// v5.4.1: team roster order = Casual ID number, lowest first (C9 before C20788); Co-Admins right below the casuals, A-Z.
+const idNum = id => { const m = /(\d+)/.exec(String(id || "")); return m ? +m[1] : Infinity; };
+const rosterRank = p => availOptional(p.uid) ? 1 : idNum(p.casualId) === Infinity ? 2 : 0;
+const rosterCmp = (a, b) => rosterRank(a) - rosterRank(b) || (rosterRank(a) === 0 ? idNum(a.casualId) - idNum(b.casualId) : 0) || a.name.localeCompare(b.name) || String(a.casualId).localeCompare(String(b.casualId));
 const personNameOf = u => u.displayName || String(u.email || "").split("@")[0];
 
 function teamHtml() {
@@ -392,10 +396,12 @@ function openBookFor(cell) {
 // { month, uids[], byUid, byName, at }. A reminder clears itself once the person marks a day (or says
 // they're not available that month).
 const REMIND_DAY = 15;
+// v5.4.1: Co-Admins may fill in their availability but never have to - they're not flagged, counted or reminded.
+const availOptional = uid => { const u = users.find(x => x.id === uid); return !!u && u.role === "Co-Admin"; };
 const monthFilled = doc => !!doc && (((doc.avail || []).length > 0) || doc.noAvail === true);
 function pendingAsks() {
     // Admins aren't on the roster (the Sheet leaves them out), so they're never asked.
-    if (!can("avail", "edit") || !authUser || isAdmin()) return [];
+    if (!can("avail", "edit") || !authUser || isAdmin() || (profile && profile.role === "Co-Admin")) return [];
     const months = new Set();
     if (+today().slice(8, 10) >= REMIND_DAY) months.add(addMonths(thisMonth(), 1));
     reminders.filter(r => (r.uids || []).includes(authUser.uid) && r.month >= thisMonth()).forEach(r => months.add(r.month));
@@ -417,13 +423,13 @@ function remindPanelHtml() {
     if (!canBook()) return "";
     const m = availMonth;
     if (m < thisMonth()) return "";
-    const people = rosterPeople().sort((a, b) => a.name.localeCompare(b.name));
+    const people = rosterPeople().sort(rosterCmp);
     const sent = reminders.filter(r => r.month === m);
     const info = p => {
         const mine = sent.filter(r => (r.uids || []).includes(p.uid)).sort((a, b) => String(b.at).localeCompare(String(a.at)));
         return { count: mine.length, last: mine[0] };
     };
-    const status = p => p.doc && (p.doc.avail || []).length ? "filled" : p.doc && p.doc.noAvail ? "none" : "missing";
+    const status = p => p.doc && (p.doc.avail || []).length ? "filled" : p.doc && p.doc.noAvail ? "none" : availOptional(p.uid) ? "optional" : "missing";
     const missing = people.filter(p => status(p) === "missing");
     const auto = m === addMonths(thisMonth(), 1) ? (+today().slice(8, 10) >= REMIND_DAY ? "on now - members who haven't filled it see a reminder" : `starts on ${REMIND_DAY} ${monthTitle(thisMonth()).split(" ")[0]}`) : "";
     return `<details class="panel av-remind" id="av-remind" ${missing.length ? "open" : ""}>
@@ -432,7 +438,7 @@ function remindPanelHtml() {
         ${people.map(p => { const st = status(p), i = info(p); return `<tr>
             <td class="c">${st === "missing" ? `<input type="checkbox" data-rm-uid="${esc(p.uid)}" aria-label="Remind ${esc(p.name)}">` : ""}</td>
             <td>${esc(p.name)} <span class="u-sub mono">${esc(p.casualId)}</span></td>
-            <td>${st === "filled" ? `<span class="ok-tag">✓ filled (${(p.doc.avail || []).length} days)</span>` : st === "none" ? `<span class="muted small">not available this month</span>` : `<span class="warn-tag">not filled yet</span>`}</td>
+            <td>${st === "filled" ? `<span class="ok-tag">✓ filled (${(p.doc.avail || []).length} days)</span>` : st === "none" ? `<span class="muted small">not available this month</span>` : st === "optional" ? `<span class="muted small">optional (Co-Admin)</span>` : `<span class="warn-tag">not filled yet</span>`}</td>
             <td class="small">${i.count ? `${plural(i.count, "time")} · last ${esc(fmtDateTime(i.last.at))}` : `<span class="muted">-</span>`}</td></tr>`; }).join("") || `<tr><td colspan="4" class="empty-cell">Nobody on the roster yet</td></tr>`}
         </tbody></table>
         <div class="toolbar av-remind-actions">
@@ -446,7 +452,7 @@ function remindPanelHtml() {
 // m / grid: another month than the one on screen (the Today page reminds for next month).
 async function remindNow(kind, m = availMonth, grid = availGrid) {
     const people = rosterPeople(grid);
-    const missing = people.filter(p => !monthFilled(p.doc));
+    const missing = people.filter(p => !monthFilled(p.doc) && !availOptional(p.uid));
     const uids = kind === "all" ? missing.map(p => p.uid) : [...document.querySelectorAll("[data-rm-uid]:checked")].map(c => c.dataset.rmUid);
     if (!uids.length) return toast(kind === "all" ? "Everyone has filled it in." : "Tick the people to remind first.", "err");
     const names = uids.map(u => (people.find(p => p.uid === u) || {}).name).filter(Boolean);

@@ -105,9 +105,9 @@ function todayTiles() {
         .sort((a, b) => String(a.showDate).localeCompare(String(b.showDate)));
     if (out.length) tiles.push(todayTile(out.some(s => s.showDate < today()) ? "t-warn" : "", "Gear still signed out", out.map(s => li(`${s.showDate < today() ? "⚠ " : ""}${esc(s.title)}`, `${esc(fmtDate(s.showDate))}${s.venue ? " · " + esc(s.venue) : ""}`)), "shows", "Open Show Sign-Out"));
     if (canBook() && todayGridMonth) {
-        const missing = rosterPeople(todayNextGrid).filter(p => !monthFilled(p.doc));
+        const missing = rosterPeople(todayNextGrid).filter(p => !monthFilled(p.doc) && !availOptional(p.uid));
         if (missing.length) tiles.push(todayTile("", `${missing.length === 1 ? "1 person hasn't" : missing.length + " people haven't"} filled ${monthTitle(todayGridMonth)}`,
-            missing.sort((a, b) => a.name.localeCompare(b.name)).map(p => li(esc(p.name), esc(p.casualId))), "", "",
+            missing.sort(rosterCmp).map(p => li(esc(p.name), esc(p.casualId))), "", "",
             `<button type="button" class="btn btn-primary btn-sm" data-today-remind>Remind them (${missing.length})</button>`));
     }
     return tiles;
