@@ -20,11 +20,12 @@ const VIEWS = {
     shows: { tab: "shows", render: renderShows },
     availability: { tab: "avail", render: renderAvailability },
     logs: { tab: "logs", render: renderLogs },
-    users: { admin: true, render: renderUsers },
-    branding: { admin: true, render: renderBranding },
+    // Admin pages; Co-Admins given an Admin tool see just that part (v5.4).
+    users: { admin: true, also: () => coTool("resetPw"), render: renderUsers },
+    branding: { admin: true, also: () => coTool("conditions"), render: renderBranding },
     events: { tab: "events", render: renderEvents }
 };
-const canOpenView = v => { const d = VIEWS[v]; return !!d && (d.placeholder || d.always ? true : d.admin ? isAdmin() : tabOn(d.tab)); };
+const canOpenView = v => { const d = VIEWS[v]; return !!d && (d.placeholder || d.always ? true : d.admin ? isAdmin() || !!(d.also && d.also()) : tabOn(d.tab)); };
 const firstView = () => Object.keys(VIEWS).find(v => !VIEWS[v].placeholder && canOpenView(v)) || "events";
 
 // =====================================================================
@@ -115,7 +116,62 @@ async function handleForgot(e) {
     catch (err) { authMsg(friendlyError(err)); }
 }
 
-function doSignOut() { store.signOut(); }
+function doSignOut() { idleForget(); store.signOut(); }
+
+// ---------- auto sign-out when idle (v5.4) ----------
+// Last activity sits in localStorage, so every open tab shares it (busy in one tab = active in all).
+// The Admin picks the time in Settings (settings/app idleMinutes: 0 = off, default 15).
+const IDLE_KEY = "sb_last_active", IDLE_WARN_MS = 60 * 1000, IDLE_OPTIONS = [0, 10, 15, 30, 60];
+let idleMem = Date.now(), idleWrote = 0, idleTick = null;
+const idleMinutes = () => { const m = settings.app && settings.app.idleMinutes; return m === 0 ? 0 : (+m > 0 ? +m : 15); };
+function idleLast() {
+    let v = 0;
+    try { v = +localStorage.getItem(IDLE_KEY) || 0; } catch (e) { /* private mode */ }
+    return Math.max(v, idleMem);
+}
+function markActive(force) {
+    const now = Date.now();
+    idleMem = now;
+    if (force || now - idleWrote > 5000) { idleWrote = now; try { localStorage.setItem(IDLE_KEY, String(now)); } catch (e) { /* ignore */ } }
+    if ($("idle-warn")) checkIdle();
+}
+function idleForget() { try { localStorage.removeItem(IDLE_KEY); } catch (e) { /* ignore */ } idleMem = Date.now(); }
+function checkIdle() {
+    const mins = idleMinutes();
+    if (!appRunning || !mins || (typeof importRunning !== "undefined" && importRunning)) return idleWarn(0);
+    const left = mins * 60000 - (Date.now() - idleLast());
+    if (left <= 0) return idleSignOut(mins);
+    idleWarn(left <= IDLE_WARN_MS ? left : 0);
+}
+function idleWarn(left) {
+    let el = $("idle-warn");
+    if (!left) { if (el) el.remove(); return; }
+    if (!el) {
+        el = document.createElement("div");
+        el.id = "idle-warn"; el.className = "idle-warn"; el.setAttribute("role", "alert");
+        el.innerHTML = `<span>No activity for a while. You'll be signed out in <b id="idle-left"></b>.</span><button type="button" class="btn btn-primary btn-sm" id="idle-stay">Stay signed in</button>`;
+        document.body.appendChild(el);
+        $("idle-stay").addEventListener("click", () => markActive(true));
+    }
+    $("idle-left").textContent = Math.ceil(left / 1000) + " s";
+}
+function idleSignOut(mins) {
+    idleWarn(0); idleForget();
+    store.signOut();
+    authMsg("", `You were signed out after ${mins} minutes with no activity, to keep your account safe. Sign in again to carry on.`);
+}
+// A tab left closed past the limit counts as idle too: checked once when the app opens.
+function idleOnStart() {
+    let v = 0;
+    try { v = +localStorage.getItem(IDLE_KEY) || 0; } catch (e) { /* ignore */ }
+    const mins = idleMinutes();
+    if (mins && v && Date.now() - v > mins * 60000) { idleSignOut(mins); return false; }
+    markActive(true);
+    return true;
+}
+["mousemove", "mousedown", "keydown", "touchstart", "scroll", "wheel"].forEach(t => window.addEventListener(t, () => markActive(), { passive: true, capture: true }));
+document.addEventListener("visibilitychange", () => { if (!document.hidden) checkIdle(); });
+idleTick = setInterval(checkIdle, 5000);
 
 function teardown() {
     stopData();
@@ -269,6 +325,7 @@ function onProfile(p) {
 }
 
 function startApp() {
+    if (!appRunning && !idleOnStart()) return;
     appRunning = true;
     showScreen("app");
     try { editMode = localStorage.getItem("sb_edit_" + authUser.uid) === "1"; } catch (e) { editMode = false; }
@@ -376,6 +433,8 @@ function startData() {
     // People: one saved copy + only the profiles changed since (people.js).
     People.setCanFix(() => isAdmin());
     if (isAdmin()) dataUnsubs.push(People.watch(store, { all: true }, rows => { users = rows; dataChanged(); }, onErr("users")));
+    // Co-Admins who may reset passwords need the active people list (unless booking already loads it).
+    else if (coTool("resetPw") && !(tabOn("avail") && canBook())) dataUnsubs.push(People.watch(store, { all: false }, rows => { users = rows; dataChanged(); }, onErr("people")));
 }
 
 // Ticks load only while Inventory Check is open (switchView starts / stops them), and only for open rounds.

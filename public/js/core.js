@@ -14,7 +14,12 @@ const BUILTIN_CONDITIONS = [
     { name: "Sold", short: "Sold", color: "neutral-2", retired: true }
 ];
 // Colours offered for a condition: theme tokens, so they suit light and dark mode.
-const COND_COLORS = { ok: "Green", info: "Blue", bad: "Red", cyan: "Teal", warn: "Amber", rose: "Pink", violet: "Purple", neutral: "Grey", "neutral-2": "Slate" };
+// 20 colours: the first 9 follow the light / dark theme, the rest (v5.4) are fixed mid-tones that read on both.
+const COND_COLORS = { ok: "Green", info: "Blue", bad: "Red", cyan: "Teal", warn: "Amber", rose: "Pink", violet: "Purple", neutral: "Grey", "neutral-2": "Slate",
+    orange: "Orange", gold: "Gold", lime: "Lime", mint: "Mint", sky: "Sky blue", indigo: "Indigo", magenta: "Magenta", coral: "Coral", maroon: "Maroon", brown: "Brown", olive: "Olive" };
+const COND_HEX = { orange: "#ee8a32", gold: "#d4a40f", lime: "#7dbf3f", mint: "#2fbf9a", sky: "#3aa8e6", indigo: "#6370e0", magenta: "#cf4fbd",
+    coral: "#ef6e5c", maroon: "#a8395c", brown: "#a87048", olive: "#8e9a32" };
+const condColorCss = k => COND_HEX[k] || `var(--${k})`;
 let conditionList = BUILTIN_CONDITIONS.map(c => ({ ...c }));
 let CONDITIONS = conditionList.map(c => c.name);
 let RETIRED = conditionList.filter(c => c.retired).map(c => c.name);
@@ -45,7 +50,7 @@ function applyConditions(doc) {
     COND_SHORT = Object.fromEntries(list.map(c => [c.name, c.short]));
     let st = document.getElementById("cond-style");
     if (!st) { st = document.createElement("style"); st.id = "cond-style"; document.head.appendChild(st); }
-    st.textContent = list.map(c => `.${condClass(c.name)} { --c: var(--${c.color}); }`).join("\n");
+    st.textContent = list.map(c => `.${condClass(c.name)} { --c: ${condColorCss(c.color)}; }`).join("\n");
 }
 const typeClass = t => "lt-" + String(t).toLowerCase().split(" ")[0];
 
@@ -85,7 +90,38 @@ function venueColorMap(extra) {   // stored colours + a free palette colour for 
     });
     return map;
 }
-const venueColor = v => v ? (venueColorMap([v])[lc(v)] || VENUE_PALETTE[venueHash(v) % VENUE_PALETTE.length]) : "";
+// v5.4: a show can have several venues. `venues` keeps the list; `venue` keeps the combined text ("Studio 1-3, 5")
+// so every page, the Sheets and older records keep working with the one string.
+const venueNum = v => { const m = /^(.*\S)\s+(\d+)$/.exec(String(v).trim()); return m ? { name: m[1], n: +m[2] } : null; };
+function fmtVenues(list) {
+    const groups = [];                                   // [{ name, nums: [] }] or [{ plain }], in the order first picked
+    uniq((list || []).map(v => String(v).trim()).filter(Boolean)).forEach(v => {
+        const x = venueNum(v);
+        if (!x) return groups.push({ plain: v });
+        const g = groups.find(g => g.name && lc(g.name) === lc(x.name));
+        if (g) g.nums.push(x.n); else groups.push({ name: x.name, nums: [x.n] });
+    });
+    return groups.map(g => {
+        if (g.plain) return g.plain;
+        const ns = uniq(g.nums).sort((a, b) => a - b), parts = [];
+        for (let i = 0; i < ns.length;) {
+            let k = i;
+            while (k + 1 < ns.length && ns[k + 1] === ns[k] + 1) k++;
+            if (k - i >= 2) parts.push(`${ns[i]}-${ns[k]}`);          // 3 or more in a row: 1-3
+            else for (let n = i; n <= k; n++) parts.push(String(ns[n]));
+            i = k + 1;
+        }
+        return `${g.name} ${parts.join(", ")}`;
+    }).join(", ");
+}
+const jobVenueList = j => j && Array.isArray(j.venues) && j.venues.length ? j.venues : (j && j.venue ? [j.venue] : []);
+// A combined text ("Studio 1-3, 5") takes the colour of its first venue ("Studio 1").
+const venueBase = v => { const m = /^(.*?\S)\s+(\d+)(?:-\d+)?(?:,|$)/.exec(String(v)); return m ? `${m[1]} ${m[2]}` : String(v).split(", ")[0]; };
+const venueColor = v => {
+    if (!v) return "";
+    const k = venueColorMap()[lc(v)] ? v : venueBase(v);
+    return venueColorMap([k])[lc(k)] || VENUE_PALETTE[venueHash(k) % VENUE_PALETTE.length];
+};
 // colours to save alongside the list (keeps existing ones, gives new venues a free colour)
 function venueColorsFor(list) {
     const map = venueColorMap(list), out = {};
@@ -218,6 +254,8 @@ function myPerm() {
 // can("maintenance", "verify") - feature-level permission check. Admins can do everything.
 const can = (mod, feat) => isAdmin() || (isActive() && !!(myPerm()[mod] || {})[feat]);
 const tabOn = k => can(k, "view");
+// v5.4: Admin tools an Admin can hand to a Co-Admin (People & Access › Admin tools). Never Members.
+const coTool = feat => isAdmin() || (!!profile && profile.role === "Co-Admin" && can("admin", feat));
 const pList = k => (profile && Array.isArray(profile[k])) ? profile[k] : [];
 const canViewCol = key => isAdmin() || !ROW_KEYS.includes(key) || pList("viewCols").includes(key);
 const canEditCol = key => isAdmin() || pList("editCols").includes(key);
@@ -339,7 +377,8 @@ function cacheLookup(col, id) {
 // In-between steps, and things already recorded elsewhere (crew bookings live in the roster / Shows Sheets),
 // are not logged. Anything not listed here is logged.
 const LOG_SKIP_BOOKINGS = ["Soft booked", "Booking confirmed", "Booking cleared", "Soft booking withdrawn", "Removed from show",
-    "Availability reminder sent", "Show created", "Show deleted", "Show details changed", "Maintenance call created", "Maintenance call deleted"];
+    "Availability reminder sent", "Show created", "Show deleted", "Show details changed", "Maintenance call created", "Maintenance call deleted",
+    "Show repeated", "Maintenance call repeated"];
 const LOG_SKIP = new Set([...LOG_SKIP_BOOKINGS,
     "Loan requested", "Loan cancelled", "Loan return started", "Discrepancy reported", "Check round started",
     "Password changed", "Branding updated", "Venue added", "Venue removed", "Venue colour changed", "Condition added", "Condition changed", "Condition removed",

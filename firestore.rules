@@ -30,6 +30,8 @@ service cloud.firestore {
     function isAdmin()    { return active() && me().role == 'Admin'; }
     function isPrimary()  { return isAdmin() && me().get('isPrimary', false) == true; }
     function can(m, f)    { return isAdmin() || (active() && me().get('perm', {}).get(m, {}).get(f, false) == true); }
+    // v5.4: Admin tools an Admin hands to chosen Co-Admins (Edit asset conditions, Reset passwords). Never Members.
+    function coTool(f)    { return isAdmin() || (can('admin', f) && me().role == 'Co-Admin'); }
 
     // ---------- row / column scope ([] = all categories) ----------
     function canSeeCat(cat)  { return me().get('viewCats', []).size() == 0 || cat in me().get('viewCats', []); }
@@ -78,7 +80,7 @@ service cloud.firestore {
     // Asset conditions: built-ins + the Admins' own ({ list: [{name, short, color, retired}], updatedAt, updatedBy }).
     match /settings/conditions {
       allow read: if active();
-      allow write: if isAdmin()
+      allow write: if coTool('conditions')
         && request.resource.data.keys().hasOnly(['list', 'updatedAt', 'updatedBy'])
         && request.resource.data.list is list
         && request.resource.data.list.size() <= 60;
@@ -102,7 +104,7 @@ service cloud.firestore {
     // ---------- users ----------
     match /users/{userId} {
       // Bookers (Admin / Co-Admin) can read active people to see who hasn't filled in availability.
-      allow read: if (signedIn() && uid() == userId) || isAdmin() || (can('avail', 'book') && resource.data.status == 'active');
+      allow read: if (signedIn() && uid() == userId) || isAdmin() || ((can('avail', 'book') || coTool('resetPw')) && resource.data.status == 'active');
 
       // Self sign-up: always a pending Member with no permissions.
       allow create: if signedIn() && uid() == userId
@@ -132,6 +134,11 @@ service cloud.firestore {
         // ...or clear their own "must change password" flag after setting a new password.
         || (signedIn() && uid() == userId && changed().hasOnly(['mustChangePassword', 'passwordChangedAt', 'updatedAt'])
             && request.resource.data.mustChangePassword == false)
+        // v5.4: a Co-Admin with "Reset passwords" may flag an active non-Admin (the backup script then sets the password).
+        || (coTool('resetPw') && uid() != userId
+            && resource.data.status == 'active' && resource.data.role != 'Admin' && resource.data.get('isPrimary', false) == false
+            && changed().hasOnly(['mustChangePassword', 'tempPasswordSetAt', 'tempPasswordSetBy', 'updatedAt'])
+            && request.resource.data.mustChangePassword is bool)
         || (isAdmin()
             && (resource.data.get('isPrimary', false) == false || uid() == userId)
             && request.resource.data.get('isPrimary', false) == resource.data.get('isPrimary', false));
@@ -297,8 +304,8 @@ service cloud.firestore {
     // Saved copies of the people list (public/js/people.js): { rows, mark, builtAt, n }.
     // "all" holds every profile, so only Admins. "active" holds what bookers may already read (active people).
     match /peopleCopy/{which} {
-      allow read: if isAdmin() || (which == 'active' && can('avail', 'book'));
-      allow create, update: if (isAdmin() || (which == 'active' && can('avail', 'book')))
+      allow read: if isAdmin() || (which == 'active' && (can('avail', 'book') || coTool('resetPw')));
+      allow create, update: if (isAdmin() || (which == 'active' && (can('avail', 'book') || coTool('resetPw'))))
         && which in ['all', 'active']
         && request.resource.data.keys().hasOnly(['rows', 'mark', 'builtAt', 'n'])
         && request.resource.data.rows is map;

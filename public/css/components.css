@@ -716,3 +716,19 @@ input[data-combo]:not([readonly]):not(:disabled) { background-image: linear-grad
 .ev-gear p { margin: 0; }
 .ev-gear .warn-tag, .ev-gear .ok-tag, .today-gear .warn-tag, .today-gear .ok-tag { font-size: var(--fs-sm); }
 .tbc-tick { margin-top: .35rem; font-size: var(--fs-sm); }
+
+/* ---------- v5.4 ---------- */
+.cd-color { display: inline-flex; align-items: center; gap: .4rem; }
+.cd-swatch { display: inline-block; width: .95rem; height: .95rem; border-radius: 4px; flex: none; border: 1px solid var(--border-soft); }
+.pw-panel { padding: .9rem 1rem; }
+
+/* v5.4 auto sign-out warning */
+.idle-warn {
+    position: fixed; left: 50%; bottom: 1.2rem; transform: translateX(-50%); z-index: 1000; max-width: calc(100% - 2rem);
+    display: flex; align-items: center; gap: .8rem; flex-wrap: wrap; background: var(--surface-3); border: 1px solid var(--warn);
+    border-radius: var(--r); padding: .7rem 1rem; box-shadow: var(--shadow); font-size: var(--fs-sm);
+}
+/* v5.4 several venues on one show */
+.vp-chips { margin-bottom: .35rem; align-items: center; }
+.vp-chips:empty { display: none; }
+.vp-as { margin-left: .2rem; }

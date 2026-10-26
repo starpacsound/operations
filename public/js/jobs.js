@@ -54,6 +54,32 @@ function stopMonthJobs() {
     if (jobsUnsub) { try { jobsUnsub(); } catch (e) { /* ignore */ } }
     jobsUnsub = null; jobsKey = ""; monthJobs = [];
 }
+// ---- several venues on one show (v5.4): chips + the usual search box; picking or typing then leaving adds a chip ----
+const venuePickerHtml = (id, label, req, help) => `<div class="field span2"><label for="${id}">${label}${req ? " *" : ""}</label>
+    <div class="cat-list vp-chips" id="${id}-chips"></div>
+    <input type="text" id="${id}" data-combo="venue" autocomplete="off" placeholder="${help || "Search or type a venue - add more than one if needed"}"></div>`;
+function venuePicker(root, id) {
+    const inp = root.querySelector("#" + id), box = root.querySelector("#" + id + "-chips");
+    let list = [];
+    const paint = () => {
+        box.innerHTML = list.map((v, i) => `<span class="cat-box">${esc(v)}${inp.disabled ? "" : ` <button type="button" class="icon-btn" data-vp-rm="${i}" aria-label="Remove ${esc(v)}">✕</button>`}</span>`).join("");
+        const combined = fmtVenues(list);
+        if (list.length > 1) box.insertAdjacentHTML("beforeend", `<span class="muted small vp-as">shows as <b>${esc(combined)}</b></span>`);
+    };
+    const add = raw => {
+        const v = String(raw || "").trim().replace(/\s+/g, " ");
+        if (v && !list.some(x => lc(x) === lc(v))) list.push(v);
+        inp.value = ""; paint();
+    };
+    inp.addEventListener("change", () => add(inp.value));
+    box.addEventListener("click", e => { const b = e.target.closest("[data-vp-rm]"); if (b) { list.splice(+b.dataset.vpRm, 1); paint(); } });
+    paint();
+    return {
+        get: () => { const t = inp.value.trim(); if (t) add(t); return list.slice(); },   // text still in the box counts
+        set: arr => { list = (arr || []).slice(); inp.value = ""; paint(); },
+        repaint: paint
+    };
+}
 const allKnownJobs = () => { const map = new Map(); [...myJobs, ...monthJobs].forEach(j => map.set(j.id, j)); return [...map.values()]; };
 const jobsOn = date => allKnownJobs().filter(j => j.date === date).sort((a, b) => (a.kind === "show" ? 0 : 1) - (b.kind === "show" ? 0 : 1) || String(a.start).localeCompare(String(b.start)));
 const jobsOfPerson = (uid, date) => jobsOn(date).filter(j => (j.crewUids || []).includes(uid));
@@ -156,7 +182,7 @@ function openDayModal(row, day) {
                     <div class="field span2"><label for="dm-title" id="dm-title-l">Show name</label><input type="text" id="dm-title" autocomplete="off"></div>
                     <div class="field"><label for="dm-start">Start</label><input type="text" id="dm-start" data-combo="jobTime" placeholder="e.g. 1400" autocomplete="off"></div>
                     <div class="field"><label for="dm-end">End</label><input type="text" id="dm-end" data-combo="jobTime" placeholder="e.g. 1700" autocomplete="off"></div>
-                    <div class="field span2"><label for="dm-venue">Venue</label><input type="text" id="dm-venue" data-combo="venue" autocomplete="off" placeholder="Search or type a venue"></div>
+                    ${venuePickerHtml("dm-venue", "Venue")}
                     <div class="field span2"><label>Manpower needed <span class="muted small">(optional)</span></label>
                         <div id="dm-mp"></div><button type="button" class="link-btn" id="dm-mp-add">+ Add role</button></div>
                     <div class="field span2"><label for="dm-notes">Notes <span class="muted small">(optional)</span></label><input type="text" id="dm-notes" maxlength="200"></div>
@@ -183,12 +209,14 @@ function openDayModal(row, day) {
             const err = msg => { $r("#dm-error").textContent = msg || ""; $r("#dm-error").classList.toggle("hidden", !msg); };
             let state = st0 === "C" ? "C" : "S";
             const paintState = () => root.querySelectorAll("[data-dm-state]").forEach(b => b.classList.toggle("active", b.dataset.dmState === state));
+            const vpD = venuePicker(root, "dm-venue");
             const fields = ["#dm-title", "#dm-start", "#dm-end", "#dm-venue", "#dm-notes"];
             function fill(j) {
                 $r("#dm-title").value = j ? j.title : ""; $r("#dm-start").value = j ? fmtTime(j.start) : ""; $r("#dm-end").value = j ? fmtTime(j.end) : "";
-                $r("#dm-venue").value = j ? j.venue || "" : ""; $r("#dm-notes").value = j ? j.notes || "" : "";
+                $r("#dm-notes").value = j ? j.notes || "" : "";
                 manpower = j ? (j.manpower || []).map(x => ({ ...x })) : [];
                 fields.forEach(s => { $r(s).disabled = !!j; });
+                vpD.set(j ? jobVenueList(j) : []);
                 $r("#dm-mp-add").classList.toggle("hidden", !!j);
                 $r("#dm-locked").classList.toggle("hidden", !j);
                 $r("#dm-mp").innerHTML = mpHtml();
@@ -243,7 +271,7 @@ function openDayModal(row, day) {
                 if (past) {
                     if (!$r("#dm-start").value) $r("#dm-start").value = fmtTime(past.start);
                     if (!$r("#dm-end").value) $r("#dm-end").value = fmtTime(past.end);
-                    if (!$r("#dm-venue").value) $r("#dm-venue").value = past.venue || "";
+                    if (!vpD.get().length) vpD.set(jobVenueList(past));
                     if (!manpower.length) { manpower = (past.manpower || []).map(x => ({ ...x })); $r("#dm-mp").innerHTML = mpHtml(); }
                 }
             });
@@ -262,10 +290,10 @@ function openDayModal(row, day) {
                         if (!title) return err(kind === "show" ? "Type or pick the show name." : "Give the call a name.");
                         if (start === null || !start) return err("Start time: e.g. 1400.");
                         if (end === null || !end) return err("End time: e.g. 1700 (0000 = midnight).");
-                        const venue = $r("#dm-venue").value.trim();
+                        const venues = vpD.get(), venue = fmtVenues(venues);
                         if (kind === "show" && !venue) return err("Choose the venue.");
                         const mp = manpower.filter(x => x.role).map(x => ({ role: x.role.toUpperCase(), qty: x.qty }));
-                        draft = { fresh: { kind, title, start, end, venue, notes: $r("#dm-notes").value.trim(), manpower: mp }, role };
+                        draft = { fresh: { kind, title, start, end, venue, venues, notes: $r("#dm-notes").value.trim(), manpower: mp }, role };
                     }
                     if (kind === "show" && hasShow()) return err(`${row.name} is already on a show this day.`);
                     const win = dayTimes(doc0, day), js_ = pickedJob || (draft && draft.fresh);
@@ -293,7 +321,7 @@ async function saveDay(row, day, state, draft, currentJobs) {
         const j = { ...draft.fresh, date, month: m, crew: [crewEntry(draft.role)], crewUids: [row.uid], createdBy: myEmail(), createdAt: nowIso(), updatedBy: myEmail(), updatedAt: nowIso() };
         ops.push({ op: "set", col: "jobs", id, data: j });
         ops.push(...listAddOps({ [j.kind === "show" ? "titles" : "maintTitles"]: [j.title], roles: [draft.role, ...j.manpower.map(x => x.role)], times: [j.start, j.end] }));
-        if (j.venue && typeof venueAddOps === "function") ops.push(...venueAddOps(j.venue));
+        if (j.venue && typeof venuesAddOps === "function") ops.push(...venuesAddOps(j.venues));
         logs.push(makeLog(j.kind === "show" ? "Show created" : "Maintenance call created", { label: `${j.title} · ${fmtDay(m, day)}` }, [], `${fmtRange(j)}${j.venue ? " @ " + j.venue : ""}`));
         jobsAfter.push({ ...j, id });
     } else if (draft && draft.job) {
@@ -383,14 +411,15 @@ function openJobEditor(j, preset) {
                 <div class="field"><label for="je-date">Date *</label><input type="date" id="je-date" value="${esc(j ? j.date : (preset && preset.date) || today())}"></div>
                 <div class="field"><label for="je-start">Start *</label><input type="text" id="je-start" data-combo="jobTime" value="${esc(j ? fmtTime(j.start) : "")}" placeholder="e.g. 1400" autocomplete="off"></div>
                 <div class="field"><label for="je-end">End *</label><input type="text" id="je-end" data-combo="jobTime" value="${esc(j ? fmtTime(j.end) : "")}" placeholder="e.g. 1700" autocomplete="off"></div>
-                <div class="field span2"><label for="je-venue">Venue${kind0 === "show" ? " *" : ""}</label><input type="text" id="je-venue" data-combo="venue" value="${esc(j ? j.venue || "" : "")}" autocomplete="off"></div>
+                ${venuePickerHtml("je-venue", "Venue", kind0 === "show")}
                 <div class="field span2"><label>Manpower needed <span class="muted small">(optional)</span></label><div id="je-mp">${mpHtml()}</div><button type="button" class="link-btn" id="je-mp-add">+ Add role</button></div>
                 <div class="field span2"><label for="je-notes">Notes</label><input type="text" id="je-notes" maxlength="200" value="${esc(j ? j.notes || "" : "")}"></div>
             </div>
             ${isNew ? "" : `<div><h4 class="dm-h">Booked (${crew.length})</h4><div id="je-crew">${crewHtml()}</div></div>`}
             <p id="je-error" class="error-msg hidden"></p>
             <div class="form-actions">
-                ${isNew ? "" : `<button type="button" class="btn btn-danger" id="je-delete" style="margin-right:auto">Delete ${j.kind === "show" ? "show" : "call"}</button>`}
+                ${isNew ? "" : `<button type="button" class="btn btn-danger" id="je-delete">Delete ${j.kind === "show" ? "show" : "call"}</button>
+                    <button type="button" class="btn" id="je-repeat" style="margin-right:auto">Repeat on other dates…</button>`}
                 <button type="button" class="btn btn-ghost" data-close>Cancel</button>
                 <button type="submit" class="btn btn-primary">${isNew ? "Create" : crew.length > 1 ? `Save for all ${crew.length}` : "Save"}</button>
             </div>
@@ -399,12 +428,15 @@ function openJobEditor(j, preset) {
             const $r = s => root.querySelector(s);
             const err = msg => { $r("#je-error").textContent = msg || ""; $r("#je-error").classList.toggle("hidden", !msg); };
             let kind = kind0;
+            const vpE = venuePicker(root, "je-venue");
+            vpE.set(jobVenueList(j));
             root.addEventListener("click", async e => {
                 const k = e.target.closest("[data-je-kind]");
                 if (k) { closeDynModal(); return openJobEditor(null, { ...(preset || {}), kind: k.dataset.jeKind, date: $r("#je-date").value }); }
                 if (e.target.id === "je-mp-add") { manpower.push({ role: "", qty: 1 }); $r("#je-mp").innerHTML = mpHtml(); return; }
                 const rm = e.target.closest("[data-mp-rm]");
                 if (rm) { manpower.splice(+rm.dataset.mpRm, 1); $r("#je-mp").innerHTML = mpHtml(); return; }
+                if (e.target.id === "je-repeat") { closeDynModal(); return openRepeatJob(j); }
                 if (e.target.id === "je-delete") {
                     if (!(await uiConfirm({ title: `Delete ${j.title}?`, danger: true, confirmText: "Delete",
                         message: crew.length ? `${plural(crew.length, "person")} come off it. Anyone with nothing else that day goes back to "available".` : "Nobody is booked on it." }))) return;
@@ -418,10 +450,21 @@ function openJobEditor(j, preset) {
                 if (c !== undefined) crew[+c].role = e.target.value.trim().toUpperCase();
             });
             root.addEventListener("change", e => { const c = e.target.dataset.crewRole; if (c !== undefined) crew[+c].role = e.target.value.trim().toUpperCase(); });
+            // v5.4: picking a name used before fills in its last times, venue, manpower and notes (change any of them, e.g. the date).
+            if (isNew) root.addEventListener("combo:pick", e => {
+                if (e.target.id !== "je-title") return;
+                const past = latestJobNamed(kind, e.target.value);
+                if (!past) return;
+                $r("#je-start").value = fmtTime(past.start); $r("#je-end").value = fmtTime(past.end);
+                if (past.venue) vpE.set(jobVenueList(past));
+                $r("#je-notes").value = past.notes || "";
+                manpower = (past.manpower || []).map(x => ({ ...x })); $r("#je-mp").innerHTML = mpHtml();
+                toast(`Filled in from ${past.title} on ${fmtDay(past.month, jobDay(past))} - change anything you need`);
+            });
             $r("#je-form").addEventListener("submit", async e => {
                 e.preventDefault();
                 const title = $r("#je-title").value.trim(), date = $r("#je-date").value;
-                const start = parseTime($r("#je-start").value), end = parseTime($r("#je-end").value), venue = $r("#je-venue").value.trim();
+                const start = parseTime($r("#je-start").value), end = parseTime($r("#je-end").value), venues = vpE.get(), venue = fmtVenues(venues);
                 if (!title) return err("Give it a name.");
                 if (!date) return err("Pick the date.");
                 if (!start) return err("Start time: e.g. 1400.");
@@ -429,7 +472,7 @@ function openJobEditor(j, preset) {
                 if (kind === "show" && !venue) return err("Choose the venue.");
                 if (crew.some(c => !c.role)) return err("Every booked person needs a role.");
                 if (!isNew && date !== j.date) return err("To move a show to another date, create it on the new date and book people there.");
-                const data = { title, start, end, venue, notes: $r("#je-notes").value.trim(), manpower: manpower.filter(x => x.role).map(x => ({ role: x.role, qty: x.qty })),
+                const data = { title, start, end, venue, venues, notes: $r("#je-notes").value.trim(), manpower: manpower.filter(x => x.role).map(x => ({ role: x.role, qty: x.qty })),
                     updatedBy: myEmail(), updatedAt: nowIso() };
                 const ops = [];
                 if (isNew) ops.push({ op: "set", col: "jobs", id: store.newId("jobs"), data: { ...data, kind, date, month: date.slice(0, 7), crew: [], crewUids: [], createdBy: myEmail(), createdAt: nowIso() } });
@@ -446,7 +489,7 @@ function openJobEditor(j, preset) {
                         `${plural(crew.length, "person")} updated${roleChanges.length ? ` · roles: ${roleChanges.map(c => `${c.name} ${c.role}`).join(", ")}` : ""}`));
                 }
                 ops.push(...listAddOps({ [kind === "show" ? "titles" : "maintTitles"]: [title], roles: [...data.manpower.map(x => x.role), ...crew.map(c => c.role)], times: [start, end] }));
-                if (venue && typeof venueAddOps === "function") ops.push(...venueAddOps(venue));
+                if (venue && typeof venuesAddOps === "function") ops.push(...venuesAddOps(venues));
                 if (isNew) ops.push(makeLog(kind === "show" ? "Show created" : "Maintenance call created", { label: `${title} · ${fmtDay(date.slice(0, 7), date.slice(8))}` }, [], `${fmtTime(start)}–${fmtTime(end)}${venue ? " @ " + venue : ""}`));
                 try {
                     await commitOps(ops);
@@ -455,6 +498,101 @@ function openJobEditor(j, preset) {
                     toast(isNew ? `${title} created` : `${title} updated${crew.length > 1 ? ` for ${plural(crew.length, "person")}` : ""}`);
                 } catch (er) { err(friendlyError(er)); }
             });
+        }
+    });
+}
+
+// The most recent show / call with this name that the app has loaded (to copy its usual details).
+const latestJobNamed = (kind, title) => allKnownJobs().filter(j => j.kind === kind && lc(j.title) === lc(String(title || "").trim()))
+    .sort((a, b) => b.date.localeCompare(a.date))[0] || null;
+
+// ---------- v5.4: repeat a show / call on other dates ----------
+// Copies the name, times, venue, manpower and notes to each date; nobody is booked on the copies.
+const REPEAT_MAX = 26;
+function repeatDates(from, mode, count, picked) {
+    if (mode === "pick") return uniq(picked).filter(d => d && d !== from).sort();
+    const step = { week: 7, fortnight: 14, day: 1, month: 0 }[mode];
+    const out = [];
+    for (let i = 1; i <= Math.min(count, REPEAT_MAX); i++) {
+        const d = new Date(from + "T00:00:00");
+        if (mode === "month") { d.setMonth(d.getMonth() + i); if (d.getDate() !== +from.slice(8)) continue; }   // e.g. no 31 Feb
+        else d.setDate(d.getDate() + step * i);
+        out.push(d.toLocaleDateString("en-CA"));
+    }
+    return out;
+}
+function openRepeatJob(j) {
+    if (!j || !canBook()) return;
+    const picked = [];
+    const what = j.kind === "show" ? "show" : "call";
+    showModal({
+        title: `Repeat ${esc(j.title)}`, body: `
+        <form id="rp-form" class="form-stack" novalidate>
+            <p class="muted small">Makes copies of <b>${esc(j.title)}</b> (${esc(fmtRange(j))}${j.venue ? " · " + esc(j.venue) : ""}${(j.manpower || []).length ? " · manpower " + esc(j.manpower.map(x => x.qty + " " + x.role).join(", ")) : ""}) on other dates. Nobody is booked on the copies - book crew on each one. You can still change any copy afterwards with <b>Edit details</b>.</p>
+            <div class="field"><label for="rp-mode">Repeat</label>
+                <select id="rp-mode">
+                    <option value="week">Every week (same weekday)</option>
+                    <option value="fortnight">Every 2 weeks</option>
+                    <option value="month">Every month (same date)</option>
+                    <option value="day">Every day</option>
+                    <option value="pick">On dates I pick</option>
+                </select></div>
+            <div class="field" id="rp-count-f"><label for="rp-count">How many more times? (max ${REPEAT_MAX})</label><input type="number" id="rp-count" min="1" max="${REPEAT_MAX}" value="4"></div>
+            <div class="field hidden" id="rp-pick-f"><label for="rp-date">Add a date</label>
+                <div class="vn-add"><input type="date" id="rp-date" value="${esc(j.date)}"><button type="button" class="btn btn-sm" id="rp-add">Add date</button></div></div>
+            <div><h4 class="dm-h">New dates</h4><div id="rp-list" class="cat-list"></div></div>
+            <p id="rp-error" class="error-msg hidden"></p>
+            <div class="form-actions"><button type="button" class="btn btn-ghost" data-close>Cancel</button><button type="submit" class="btn btn-primary" id="rp-go">Create copies</button></div>
+        </form>`,
+        onMount(root) {
+            const $r = q => root.querySelector(q);
+            const err = m => { $r("#rp-error").textContent = m || ""; $r("#rp-error").classList.toggle("hidden", !m); };
+            const dates = () => repeatDates(j.date, $r("#rp-mode").value, Math.max(1, parseInt($r("#rp-count").value, 10) || 1), picked);
+            const paint = () => {
+                const pick = $r("#rp-mode").value === "pick";
+                $r("#rp-count-f").classList.toggle("hidden", pick);
+                $r("#rp-pick-f").classList.toggle("hidden", !pick);
+                const ds = dates();
+                $r("#rp-list").innerHTML = ds.map(d => `<span class="cat-box">${esc(fmtDay(d.slice(0, 7), d.slice(8)))}${pick ? ` <button type="button" class="icon-btn" data-rp-rm="${d}" aria-label="Remove">✕</button>` : ""}</span>`).join("")
+                    || `<span class="muted small">${pick ? "Add the dates you want." : "No dates."}</span>`;
+                $r("#rp-go").textContent = ds.length ? `Create ${plural(ds.length, "copy")}` : "Create copies";
+            };
+            root.addEventListener("input", e => { if (["rp-mode", "rp-count"].includes(e.target.id)) { err(""); paint(); } });
+            root.addEventListener("change", e => { if (e.target.id === "rp-mode") paint(); });
+            root.addEventListener("click", e => {
+                if (e.target.id === "rp-add") {
+                    const d = $r("#rp-date").value;
+                    if (!d) return;
+                    if (d === j.date) return err("That's the date of this one - pick another.");
+                    if (picked.length >= REPEAT_MAX) return err(`Up to ${REPEAT_MAX} dates at a time.`);
+                    if (!picked.includes(d)) picked.push(d);
+                    err(""); paint();
+                }
+                const rm = e.target.closest("[data-rp-rm]");
+                if (rm) { picked.splice(picked.indexOf(rm.dataset.rpRm), 1); paint(); }
+            });
+            $r("#rp-form").addEventListener("submit", async e => {
+                e.preventDefault();
+                const ds = dates();
+                if (!ds.length) return err("Add at least one date.");
+                // Skip dates that already have a ${what} with the same name (also in months not open on screen).
+                let existing = [];
+                try { existing = await store.getAll("jobs", { where: [["date", "in", ds]] }); } catch (er) { return err(friendlyError(er)); }
+                const clash = new Set(existing.filter(x => x.kind === j.kind && lc(x.title) === lc(j.title)).map(x => x.date));
+                const todo = ds.filter(d => !clash.has(d));
+                if (!todo.length) return err(`Every one of those dates already has ${j.title}.`);
+                const base = { kind: j.kind, title: j.title, start: j.start, end: j.end, venue: j.venue || "", venues: jobVenueList(j), notes: j.notes || "", manpower: (j.manpower || []).map(x => ({ role: x.role, qty: x.qty })) };
+                const ops = todo.map(d => ({ op: "set", col: "jobs", id: store.newId("jobs"), data: { ...base, date: d, month: d.slice(0, 7), crew: [], crewUids: [],
+                    createdBy: myEmail(), createdAt: nowIso(), updatedBy: myEmail(), updatedAt: nowIso() } }));
+                ops.push(makeLog(j.kind === "show" ? "Show repeated" : "Maintenance call repeated", { label: j.title }, [], `${plural(todo.length, "copy")}: ${todo.join(", ")}`));
+                try {
+                    await commitOps(ops);
+                    uniq(todo.map(d => d.slice(0, 7))).forEach(m => Roster.push(m));
+                    closeDynModal();
+                    toast(`${j.title}: ${plural(todo.length, "copy")} made${clash.size ? ` (${plural(clash.size, "date")} skipped - already there)` : ""}`);
+                } catch (er) { err(friendlyError(er)); }
+            });
+            paint();
         }
     });
 }
@@ -527,6 +665,7 @@ function jobsHtml() {
                         <button type="submit" class="btn btn-sm">Add (soft)</button>
                     </form>
                     <span class="acc-spacer"></span>
+                    <button type="button" class="btn btn-sm" data-jb-repeat="${esc(j.id)}">Repeat…</button>
                     <button type="button" class="btn btn-sm" data-jb-edit="${esc(j.id)}">Edit details${(j.crew || []).length > 1 ? ` (all ${(j.crew || []).length})` : ""}</button>
                 </div>` : ""}
             </div>` : ""}
@@ -559,6 +698,8 @@ function jobsHtml() {
         if (nw) return openJobEditor(null, { kind: nw.dataset.jbNew, date: availMonth === thisMonth() ? today() : `${availMonth}-01` });
         const ed = t.closest("[data-jb-edit]");
         if (ed) return openJobEditor(monthJobs.find(j => j.id === ed.dataset.jbEdit));
+        const rp = t.closest("[data-jb-repeat]");
+        if (rp) return openRepeatJob(monthJobs.find(j => j.id === rp.dataset.jbRepeat));
         const rm = t.closest("[data-jb-remove]");
         if (rm) { const j = monthJobs.find(x => x.id === rm.dataset.jbRemove); const c = (j.crew || []).find(x => x.uid === rm.dataset.uid); return removeFromJob(j, c.uid, c.name); }
         const dy = t.closest("[data-jb-day]");

@@ -195,7 +195,7 @@ function openNewShow(opts) {
                             items, missingCount: 0, history: [{ status: "out", at: nowIso(), by: myEmail() }],
                             ...(job ? { jobId: job.id, crewUids: (job.crewUids || []).slice() } : {}) } },
                         makeLog("Show signed out", { label: title }, [], `${venue} · ` + items.map(i => `${i.qty}× ${i.name}`).join(", "), { ticketId: id }),
-                        ...venueAddOps(venue)
+                        ...(job ? [] : venueAddOps(venue))   // a job's combined venue text ("Studio 1-3") isn't a venue of its own
                     ]);
                     closeDynModal();
                     renderShows();
@@ -264,6 +264,13 @@ function venueAddOps(venue) {
     const list = (settings.venues && settings.venues.list) || [];
     if (!venue || list.some(v => lc(v) === lc(venue))) return [];
     return [{ op: "merge", col: "settings", id: "venues", data: { list: [...list, venue], colors: { [venue]: venueColor(venue) } } }];
+}
+// Several venues at once (v5.4): one write, so the list isn't overwritten by each venue's own op.
+function venuesAddOps(venues) {
+    const list = (settings.venues && settings.venues.list) || [];
+    const add = uniq(venues || []).filter(v => !list.some(x => lc(x) === lc(v)));
+    if (!add.length) return [];
+    return [{ op: "merge", col: "settings", id: "venues", data: { list: [...list, ...add], colors: Object.fromEntries(add.map(v => [v, venueColor(v)])) } }];
 }
 Combo.register("venue", () => {
     const used = countBy(shows, s => s.venue);

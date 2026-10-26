@@ -84,11 +84,16 @@ const PERM_MODULES = [
     { key: "logs", label: "Activity Log", features: [
         { key: "view", label: "See the tab", srv: true },
         { key: "pdf", label: "Download Log PDF" }
+    ] },
+    // v5.4: Admin jobs an Admin can hand to chosen Co-Admins (never Members; off by default).
+    { key: "admin", label: "Admin tools (Co-Admins only)", features: [
+        { key: "conditions", label: "Edit asset conditions (Settings)", srv: true },
+        { key: "resetPw", label: "Reset other people's passwords", srv: true, hint: "Not Admins' passwords. Needs the v5.4 backup script" }
     ] }
 ];
 const ROLES = ["Admin", "Co-Admin", "Member"];
 // Features a role can never have, whatever the matrix says (also enforced in firestore.rules).
-const ROLE_LOCKS = { Member: { shows: ["viewAll"] } };
+const ROLE_LOCKS = { Member: { shows: ["viewAll"], admin: ["conditions", "resetPw"] } };
 const isLocked = (role, mod, feat) => !!(ROLE_LOCKS[role] && (ROLE_LOCKS[role][mod] || []).includes(feat));
 function applyLocks(role, perm) {
     Object.entries(ROLE_LOCKS[role] || {}).forEach(([m, fs]) => fs.forEach(f => { if (perm[m]) perm[m][f] = false; }));
@@ -105,7 +110,7 @@ const permWith = (base, overrides) => {
 
 const BUILTIN_TEMPLATES = {
     "Co-Admin": {
-        perm: permWith(permAll(true), { catalogue: { delete: false } }),
+        perm: permWith(permAll(true), { catalogue: { delete: false }, admin: { conditions: false, resetPw: false } }),
         viewCols: [...ROW_KEYS], editCols: [...ALL_FIELD_KEYS], viewCats: [], editCats: []
     },
     "Member": {

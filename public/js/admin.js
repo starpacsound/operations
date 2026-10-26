@@ -17,7 +17,12 @@ const copy = o => JSON.parse(JSON.stringify(o));
 const dupCasual = u => !!u.casualId && users.some(x => x.id !== u.id && x.casualId === u.casualId && x.status !== "rejected");
 
 function renderUsers() {
-    if (!isAdmin() || !$("pending-users-list")) return;
+    if (!$("pending-users-list")) return;
+    const full = isAdmin();
+    $("users-admin").classList.toggle("hidden", !full);
+    $("pw-reset-panel").classList.toggle("hidden", full);
+    $("users-sub").textContent = full ? "Approve sign-ups and control exactly what each person can see and do." : "Give someone a temporary password when they're locked out.";
+    if (!full) return renderPwResetPanel();
     const pending = users.filter(u => u.status === "pending").sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
     const inactive = users.filter(u => !["pending", "active"].includes(u.status));
 
@@ -307,8 +312,34 @@ function makeTempPassword() {
     return `${s.slice(0, 4)}-${s.slice(4, 8)}-${s.slice(8)}`;
 }
 
+// v5.4: Co-Admins an Admin trusts with "Reset other people's passwords" get this list instead of the Admin page.
+let pwQuery = "";
+const pwResetTargets = () => users.filter(u => u.status === "active" && u.role !== "Admin" && !u.isPrimary && u.id !== authUser.uid)
+    .sort((a, b) => personName(a).localeCompare(personName(b)));
+function renderPwResetPanel() {
+    const host = $("pw-reset-panel");
+    if (!coTool("resetPw")) { host.innerHTML = ""; return; }
+    const q = lc(pwQuery).trim();
+    const list = pwResetTargets().filter(u => !q || lc(`${personName(u)} ${u.email} ${u.casualId || ""}`).includes(q));
+    const had = document.activeElement && document.activeElement.id === "pw-search";
+    host.innerHTML = `<div class="panel form-stack pw-panel">
+        <p class="muted small">Pick the person, then <b>Reset password</b>. You get a temporary password to give them privately; at their next sign-in they must choose their own. Admins' passwords can only be reset by an Admin.</p>
+        <input type="search" id="pw-search" class="filter-input" placeholder="Search name, email or Casual ID…" value="${esc(pwQuery)}" aria-label="Search people">
+        <div class="table-scroll"><table class="data-table compact"><thead><tr><th>Person</th><th>Role</th><th></th></tr></thead><tbody>
+        ${list.slice(0, 100).map(u => `<tr><td><b>${esc(personName(u))}</b> <span class="u-sub">${esc(u.email)} · ${esc(u.casualId || "Full-time")}</span>${u.mustChangePassword ? ` <span class="custom-badge">temp password</span>` : ""}</td>
+            <td>${esc(u.role)}</td><td class="nowrap"><button type="button" class="btn btn-sm" data-pw-reset="${esc(u.id)}">Reset password…</button></td></tr>`).join("")
+            || `<tr><td colspan="3" class="empty-cell">${users.length ? "Nobody matches" : "Loading people…"}</td></tr>`}
+        </tbody></table></div>
+        ${list.length > 100 ? `<p class="muted small">Showing the first 100 - search to narrow it down.</p>` : ""}
+    </div>`;
+    if (had) { const i = $("pw-search"); i.focus(); i.setSelectionRange(i.value.length, i.value.length); }
+}
+$("pw-reset-panel").addEventListener("input", e => { if (e.target.id === "pw-search") { pwQuery = e.target.value; renderPwResetPanel(); } });
+$("pw-reset-panel").addEventListener("click", e => { const b = e.target.closest("[data-pw-reset]"); if (b) resetPasswordFor(users.find(u => u.id === b.dataset.pwReset)); });
+
 async function resetPasswordFor(u) {
     if (!u || u.isPrimary || u.id === authUser.uid) return;
+    if (!isAdmin() && !(coTool("resetPw") && u.role !== "Admin" && u.status === "active")) return;
     const val = await uiConfirm({ title: `Reset password · ${personName(u)}`, confirmText: "Set temporary password",
         message: `${u.email} won't be able to use their old password. With the temporary one they sign in once, then must choose their own before they can use the app.`,
         input: { label: "Temporary password (you can type your own)", value: makeTempPassword(),
@@ -453,7 +484,15 @@ let brandDraft = null;
 
 function renderBranding() {
     const host = $("branding-form");
-    if (!host || !isAdmin()) return;
+    if (!host) return;
+    // v5.4: a Co-Admin given "Edit asset conditions" sees only that part of Settings.
+    $("branding-sub").textContent = isAdmin() ? "Name and logo (sidebar, sign-in screen, browser tab, PDF exports), venues, asset conditions and inventory bundles." : "The conditions an asset can have.";
+    if (!isAdmin()) {
+        if (!coTool("conditions")) { host.innerHTML = ""; return; }
+        host.innerHTML = conditionsPanelHtml();
+        bindConditionsPanel();
+        return;
+    }
     if (!brandDraft) brandDraft = { appName: appName(), logo: (settings.app && settings.app.logo) || "" };
     const mark = (cls) => `<div class="brand-mark ${cls || ""} ${brandDraft.logo ? "has-logo" : ""}">${brandDraft.logo ? `<img src="${esc(brandDraft.logo)}" alt="">` : esc(initials(brandDraft.appName))}</div>`;
     host.innerHTML = `<div class="brand-editor">
@@ -476,11 +515,22 @@ function renderBranding() {
             <p class="preview-label">Sign-in screen</p>
             <div class="preview-login">${mark("lg")}<b>${esc(brandDraft.appName || "Untitled")}</b><span class="muted small">Gear, Shows &amp; Crew</span></div>
         </div></div>
+        ${idlePanelHtml()}
         ${venuesPanelHtml()}
         ${conditionsPanelHtml()}
         ${bundlesPanelHtml()}`;
     bindVenuesPanel();
     bindConditionsPanel();
+    $("br-idle").addEventListener("change", async e => {
+        const m = +e.target.value;
+        try {
+            await commitOps([
+                { op: "merge", col: "settings", id: "app", data: { idleMinutes: m, updatedBy: myEmail(), updatedAt: nowIso() } },
+                makeLog("Auto sign-out changed", null, [], m ? `After ${m} minutes idle` : "Off")
+            ]);
+            toast(m ? `Everyone is now signed out after ${m} minutes with no activity` : "Auto sign-out is off");
+        } catch (er) { toast(friendlyError(er), "err"); }
+    });
     $("bd-build").addEventListener("click", buildBundles);
 
     const err = m => { const p = $("br-error"); p.textContent = m || ""; p.classList.toggle("hidden", !m); };
@@ -535,6 +585,16 @@ function renderBranding() {
 
 // ---------- Show venues (the searchable list on Show Sign-Out) ----------
 const savedVenues = () => ((settings.venues && settings.venues.list) || []).slice().sort((a, b) => a.localeCompare(b));
+// v5.4: auto sign-out after no activity (shell.js does the timing).
+function idlePanelHtml() {
+    const cur = idleMinutes();
+    return `<h2 class="section-title">Auto sign-out</h2>
+    <div class="panel form-stack">
+        <p class="muted small">Signs a person out when the app has had no taps, clicks or typing for this long, so nobody else can use a phone or computer left signed in. A warning shows 1 minute before, with a button to stay signed in. Applies to everyone, Admins too.</p>
+        <div class="field"><label for="br-idle">Sign out after</label>
+            <select id="br-idle">${IDLE_OPTIONS.map(m => `<option value="${m}" ${m === cur ? "selected" : ""}>${m ? m + " minutes idle" : "Never (off)"}</option>`).join("")}</select></div>
+    </div>`;
+}
 function venuesPanelHtml() {
     const list = savedVenues();
     return `<h2 class="section-title">Show venues</h2>
@@ -577,11 +637,12 @@ function bindVenuesPanel() {
 
 // ---------- Asset conditions (settings/conditions; built-ins can't be renamed or removed) ----------
 const condUse = name => inventory.filter(a => a.condition === name).length;
-const condColorSelect = (c, attrs) => `<select ${attrs}>${Object.entries(COND_COLORS).map(([k, v]) => `<option value="${k}" ${c === k ? "selected" : ""}>${v}</option>`).join("")}</select>`;
+// Colour picker: a swatch beside a list of the 20 colours (the swatch follows the choice).
+const condColorSelect = (c, attrs) => `<span class="cd-color"><i class="cd-swatch" style="background:${condColorCss(c)}"></i><select ${attrs}>${Object.entries(COND_COLORS).map(([k, v]) => `<option value="${k}" ${c === k ? "selected" : ""}>${v}</option>`).join("")}</select></span>`;
 function conditionsPanelHtml() {
     return `<h2 class="section-title">Asset conditions</h2>
     <div class="panel form-stack cond-panel">
-        <p class="muted small">The conditions an asset can have. The 9 built-in ones are used by loans, repairs and checks, so their names are fixed, but you can change their short label and colour. Add your own (e.g. <b>Upgraded</b>) for anything else. <b>Counts as retired</b> hides the asset from Inventory Check rounds and the location tree, like Sold and Decommissioned. Imports match a condition by its name or short label.</p>
+        <p class="muted small">The conditions an asset can have, each with one of 20 colours. The 9 built-in ones are used by loans, repairs and checks, so their names are fixed, but you can change their short label and colour. Add your own (e.g. <b>Upgraded</b>) for anything else. <b>Counts as retired</b> hides the asset from Inventory Check rounds and the location tree, like Sold and Decommissioned. Imports match a condition by its name or short label.</p>
         <div class="table-scroll"><table class="data-table cond-table">
             <thead><tr><th>Condition</th><th>Short label</th><th>Colour</th><th>Counts as retired</th><th>Assets</th><th></th></tr></thead>
             <tbody id="cd-list">${conditionList.map(c => {
@@ -628,6 +689,8 @@ function bindConditionsPanel() {
         const c = { name, short: $("cd-short").value.trim() || name, color: $("cd-color").value, retired: $("cd-retired").checked };
         if (await saveConditions([...conditionList, c], "Condition added", name)) toast(`Added ${name}`);
     });
+    $("view-branding").querySelectorAll(".cond-panel select").forEach(sel => sel.addEventListener("change", () => {
+        const sw = sel.parentElement.querySelector(".cd-swatch"); if (sw) sw.style.background = condColorCss(sel.value); }));
     $("cd-list").addEventListener("change", async e => {
         const tr = e.target.closest("[data-cd]");
         if (!tr) return;

@@ -30,7 +30,7 @@ const jobState = j => {   // members: their own soft / confirmed booking
     const st = dayState(myAvailDoc(j.month), jobDay(j)); return st === "C" ? "C" : st === "S" ? "S" : "";
 };
 function venueLegend(list) {   // venues of this month's shows + maintenance
-    const vs = uniq(list.filter(j => j.kind === "show" && j.venue).map(j => j.venue)).sort((a, b) => a.localeCompare(b));
+    const vs = uniq(list.filter(j => j.kind === "show" && j.venue).flatMap(j => jobVenueList(j))).sort((a, b) => a.localeCompare(b));
     return `<span class="av-legend">${vs.map(v => `<i class="av-lg" style="background:${venueColor(v)}"></i>${esc(v)}`).join(" ")}
         ${list.some(j => j.kind === "maint") || !vs.length ? `<i class="av-lg kind-maint"></i>Maintenance call` : ""}
         ${!canSeeAll() ? `<i class="av-lg soft-mark"></i>Soft booked` : ""}</span>`;

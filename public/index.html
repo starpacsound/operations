@@ -356,8 +356,11 @@
             <!-- ---------- People & Access ---------- -->
             <section id="view-users" class="view hidden">
                 <div class="view-head">
-                    <div><h1>People &amp; Access</h1><p class="view-sub">Approve sign-ups and control exactly what each person can see and do.</p></div>
+                    <div><h1>People &amp; Access</h1><p class="view-sub" id="users-sub">Approve sign-ups and control exactly what each person can see and do.</p></div>
                 </div>
+                <!-- v5.4: what a Co-Admin with "Reset passwords" sees instead of the Admin page -->
+                <div id="pw-reset-panel" class="hidden"></div>
+                <div id="users-admin">
                 <h2 class="section-title">Pending sign-ups</h2>
                 <div class="panel"><div class="table-scroll">
                     <table class="data-table">
@@ -377,12 +380,13 @@
                         <tbody id="inactive-users-list"></tbody>
                     </table>
                 </div></div>
+                </div>
             </section>
 
             <!-- ---------- Settings (branding, venues, conditions, bundles) ---------- -->
             <section id="view-branding" class="view hidden">
                 <div class="view-head">
-                    <div><h1>Settings</h1><p class="view-sub">Name and logo (sidebar, sign-in screen, browser tab, PDF exports), venues, asset conditions and inventory bundles.</p></div>
+                    <div><h1>Settings</h1><p class="view-sub" id="branding-sub">Name and logo (sidebar, sign-in screen, browser tab, PDF exports), venues, asset conditions and inventory bundles.</p></div>
                 </div>
                 <div id="branding-form"></div>
             </section>
