@@ -147,7 +147,10 @@ $("view-maintenance").addEventListener("click", e => {
 });
 
 // ---------- 1. Log maintenance / report fault ----------
-function openLogMaintenance(preselectId) {
+// opts.fromFaulty: opened because someone picked "Faulty" as an asset's condition; Admins / Co-Admins then
+// start on "Confirmed Faulty" so the condition changes straight away. opts.onClose runs when the dialog closes.
+function openLogMaintenance(preselectId, opts) {
+    opts = opts || {};
     if (!can("maintenance", "submit")) return;
     const selected = new Map();
     const mgr = canVerify();
@@ -183,8 +186,8 @@ function openLogMaintenance(preselectId) {
                 <textarea id="lm-desc" rows="3" placeholder="Describe the fault or the work done…"></textarea></div>
             <div class="form-grid">${placeFields("lm", "", "", { space: "New item space (optional)", location: "New item location (optional)", ph: "Leave blank to keep current" })}</div>
             ${mgr ? `<div class="field box"><label>Workflow</label>
-                <label class="radio-row"><input type="radio" name="lm-mode" value="request" checked> Submit as a fault request (goes to <b>Requests</b>)</label>
-                <label class="radio-row"><input type="radio" name="lm-mode" value="confirm"> I've verified it - file straight to <b>Confirmed Faulty</b></label>
+                <label class="radio-row"><input type="radio" name="lm-mode" value="request" ${opts.fromFaulty ? "" : "checked"}> Submit as a fault request (goes to <b>Requests</b>)</label>
+                <label class="radio-row"><input type="radio" name="lm-mode" value="confirm" ${opts.fromFaulty ? "checked" : ""}> I've verified it - file straight to <b>Confirmed Faulty</b></label>
                 <label class="radio-row"><input type="radio" name="lm-mode" value="log"> Log only - apply status / location now, no repair needed</label>
             </div>` : ""}
             <p id="lm-error" class="error-msg hidden"></p>
@@ -192,7 +195,7 @@ function openLogMaintenance(preselectId) {
         </form>`;
 
     showModal({
-        title: "Log Maintenance", size: "lg", body, onMount(root) {
+        title: "Log Maintenance", size: "lg", body, onClose: opts.onClose, onMount(root) {
             const search = root.querySelector("#lm-search");
             const err = m => { const p = root.querySelector("#lm-error"); p.textContent = m || ""; p.classList.toggle("hidden", !m); };
             const renderSelected = () => {

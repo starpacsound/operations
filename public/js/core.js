@@ -233,14 +233,19 @@ const yearOptions = (sel, blank) => `<option value="">${blank || "Not set"}</opt
     .map(y => `<option value="${esc(y)}" ${String(sel) === y ? "selected" : ""}>${esc(y)}</option>`).join("");
 // Bought (year set) but no finance asset code yet -> send to finance
 const needsFinance = a => !!dv(a.yearOfPurchase) && !dv(a.code) && !RETIRED.includes(a.condition);
+// Any asset still in use without a Code / AEV, whatever its purchase year.
+const noCode = a => !dv(a.code) && !RETIRED.includes(a.condition);
 const inlineOn = () => editMode && canEditNonCondition();
 const roleTemplate = role => resolveTemplate(role, settings.roles);
 
 // =====================================================================
 // DIALOGS (in-app replacements for confirm/prompt, plus a generic modal host)
 // =====================================================================
-function showModal({ title, body, size, onMount }) {
+// onClose runs once when this dialog goes away (saved, cancelled or replaced).
+let dynOnClose = null;
+function showModal({ title, body, size, onMount, onClose }) {
     closeDynModal();
+    dynOnClose = onClose || null;
     const host = $("modal-host");
     host.innerHTML = `<div class="modal-backdrop" id="dyn-modal">
         <div class="modal ${size || ""}" role="dialog" aria-modal="true">
@@ -265,7 +270,13 @@ function focusSoon(el, ms) {
         el.focus();
     }, ms || 30);
 }
-function closeDynModal() { Combo.close(); const h = $("modal-host"); if (h) h.innerHTML = ""; }
+function closeDynModal() {
+    Combo.close();
+    const h = $("modal-host");
+    if (h) h.innerHTML = "";
+    const cb = dynOnClose; dynOnClose = null;
+    if (cb) cb();
+}
 
 // uiConfirm({ title, message, confirmText, danger, input: { label, placeholder, required, value, multiline, match } })
 // Resolves to false (cancelled), true (confirmed), or the typed string when an input is requested.

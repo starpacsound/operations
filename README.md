@@ -1,4 +1,4 @@
-# Showbase / STAR Inventory - Asset System (v5.2.2)
+# Showbase / STAR Inventory - Asset System (v5.2.3)
 
 A live inventory app for a production / AV team. **Firebase Auth + Firestore** hold the data and logins,
 every change is also pushed **one-way to Google Sheets** as a backup, and the site is a static page hosted on **GitHub Pages**.
@@ -14,7 +14,18 @@ Try it with no setup: open `public/index.html?demo` (offline sample data, quick 
 
 ---
 
-## What's new in v5.2.2 - Rack Layout stays quick with thousands of assets
+## What's new in v5.2.3 - Faulty opens the fault report, "No code" filter
+
+| Area | Change |
+|---|---|
+| Picking Faulty | Changing an asset's condition to **Faulty** (in the table, Rack Layout or the ✎ edit form) opens the same **Log Maintenance** pop-up as the ⚠ button, with the asset filled in, so a maintenance ticket is made too. Admins / Co-Admins start on **"I've verified it - Confirmed Faulty"**, which sets the condition straight away. Members send a fault request, as with ⚠, and the condition changes once it's verified. Cancel leaves the condition as it was. In the edit form, your other changes are saved first. If the asset already has an open ticket, or you can't report faults, Faulty is simply set as before. |
+| "No code" | The Catalogue's **Year of purchase** summary has a new **No code** chip next to **Needs finance code**: every asset still in use (not retired) with an empty Code / AEV, whatever its year. Click it to filter. It's also in the purchase-year filter list. "Needs finance code" is unchanged (year set, no code). |
+
+**Upgrading from v5.2.2:** upload `public/js/core.js`, `inventory.js`, `maintenance.js` and `public/css/components.css`. No rules, indexes or Apps Script changes.
+
+---
+
+## What was new in v5.2.2 - Rack Layout stays quick with thousands of assets
 
 | Area | Change |
 |---|---|
@@ -335,7 +346,7 @@ Admin always has full access. Everything below is per person, starting from the 
 npm run serve           # http://localhost:8765/?demo
 npm run test:rules      # 203 security-rule checks on the Firestore emulator (needs Java)
 pip install playwright && python3 -m playwright install chromium
-npm run test:e2e        # 263 browser checks in demo mode (both themes) (needs `npm run serve` running)
+npm run test:e2e        # 270 browser checks in demo mode (both themes) (needs `npm run serve` running)
 npm run test:shows      # 23 checks of the Shows Sheet + booking emails script against a mock Sheet + Firestore
 npm run test:bundles    # 22 checks of the bundle logic (no browser needed)
 npm run test:people     # 15 checks of the people copy (no browser needed)

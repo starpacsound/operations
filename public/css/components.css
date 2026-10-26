@@ -385,6 +385,7 @@ input[data-combo]:not([readonly]):not(:disabled) { background-image: linear-grad
 .mix-tab.active { background: var(--surface-3); color: var(--text); }
 .year-chip { --c: var(--accent); }
 .finance-chip { --c: var(--warn); }
+.nocode-chip { --c: var(--rose); }
 
 /* Year of purchase cell */
 .year-select { width: 100%; min-width: 86px; padding: .28rem .4rem; font: 600 .74rem var(--font); border-radius: 6px; background: var(--input); border: 1px solid var(--border-soft); color: var(--text); font-variant-numeric: tabular-nums; }

@@ -71,7 +71,7 @@ function refreshDynamicDropdowns() {
     fillSelect("filter-category", "All categories", allCategories());
     fillSelect("rack-category", "All categories", allCategories());
     fillSelect("rack-space", "All spaces", allSpaces());
-    fillSelect("filter-year", "All purchase years", usedYears(), `<option value="FINANCE">Needs finance code</option><option value="NONE">Year not set</option>`);
+    fillSelect("filter-year", "All purchase years", usedYears(), `<option value="FINANCE">Needs finance code</option><option value="NOCODE">No code</option><option value="NONE">Year not set</option>`);
     const spaces = new Set();
     inventory.forEach(it => {
         const sp = canViewCol("itemSpace") ? dv(it.itemSpace) : "", lo = canViewCol("itemLocation") ? dv(it.itemLocation) : "";
@@ -86,7 +86,7 @@ function searchHay(it) {
     return ["category", "brand", "model", "description", ...ROW_KEYS].filter(canViewCol).map(k => lc(it[k])).join("\u0001");
 }
 
-const yearMatch = (it, y) => y === "ALL" || (y === "NONE" ? !dv(it.yearOfPurchase) : y === "FINANCE" ? needsFinance(it) : dv(it.yearOfPurchase) === y);
+const yearMatch = (it, y) => y === "ALL" || (y === "NONE" ? !dv(it.yearOfPurchase) : y === "FINANCE" ? needsFinance(it) : y === "NOCODE" ? noCode(it) : dv(it.yearOfPurchase) === y);
 
 function getFiltered() {
     const q = $("search-input").value.trim().toLowerCase();
@@ -140,14 +140,16 @@ function renderOpsStrip() {
         inventory.forEach(i => { const y = dv(i.yearOfPurchase) || "NONE"; counts[y] = (counts[y] || 0) + units(i); });
         const years = Object.keys(counts).filter(y => y !== "NONE").sort().reverse();
         const fin = inventory.filter(needsFinance).reduce((n, a) => n + units(a), 0);
+        const nocode = inventory.filter(noCode).reduce((n, a) => n + units(a), 0);
         const active = $("filter-year").value;
         const shade = i => `--c: color-mix(in srgb, var(--accent) ${Math.max(35, 100 - i * 12)}%, var(--surface-3))`;
         bar = [...years.map((y, i) => `<button type="button" class="seg" style="flex:${counts[y]};${shade(i)}" title="${y}: ${counts[y]}" data-year="${y}" aria-label="Filter ${y}"></button>`),
             counts.NONE ? `<button type="button" class="seg cond-decommissioned" style="flex:${counts.NONE}" title="Year not set: ${counts.NONE}" data-year="NONE" aria-label="Year not set"></button>` : ""].join("");
         legend = `<button type="button" class="chip finance-chip ${active === "FINANCE" ? "active" : ""} ${fin ? "" : "zero"}" data-year="FINANCE"><b>${fin}</b>Needs finance code</button>` +
+            `<button type="button" class="chip nocode-chip ${active === "NOCODE" ? "active" : ""} ${nocode ? "" : "zero"}" data-year="NOCODE" title="In use, no Code / AEV (any year)"><b>${nocode}</b>No code</button>` +
             years.map((y, i) => `<button type="button" class="chip year-chip ${active === y ? "active" : ""}" style="${shade(i)}" data-year="${y}"><b>${counts[y]}</b>${y}</button>`).join("") +
             `<button type="button" class="chip cond-decommissioned ${active === "NONE" ? "active" : ""} ${counts.NONE ? "" : "zero"}" data-year="NONE"><b>${counts.NONE || 0}</b>Year not set</button>`;
-        hint = "Year set but no Code = send to finance";
+        hint = "Year set but no Code = send to finance · No code = any asset in use without a Code / AEV";
     }
 
     const tiles = [];
@@ -297,11 +299,19 @@ function renderEditToggle() {
 }
 
 // ---------- Condition changes (with the On Loan hand-off) ----------
+// Picking "Faulty" opens the same fault report as the ⚠ button, so a maintenance ticket is made too.
+// (Not when the asset already has an open ticket, or the person can't report faults.)
+const faultReportFirst = it => it && it.condition !== "Faulty" && can("maintenance", "submit") && !tickets.some(t => t.assetId === it.id);
+function openFaultFor(it) {
+    openLogMaintenance(it.id, { fromFaulty: true, onClose: () => requestRender(true) });
+}
+
 async function changeCondition(sel) {
     const it = assetById(sel.dataset.id);
     if (!it) return;
     const next = sel.value;
     if (next === it.condition) return;
+    if (next === "Faulty" && faultReportFirst(it)) return openFaultFor(it);
     // Lending from the catalogue: capture the loan details first.
     if (next === "On Loan") {
         if (!can("loans", "catalogue")) {
@@ -496,9 +506,12 @@ async function saveAsset(e) {
                 patch[k] = read(k);
             });
             if (patch.category === "") patch.category = "General";
-            if (!diffFields(it, patch).length) { closeModal(); return toast("No changes to save"); }
+            // Changed to Faulty: save the other edits, then open the fault report (it sets the condition).
+            const fault = patch.condition === "Faulty" && faultReportFirst(it);
+            if (fault) delete patch.condition;
+            if (!diffFields(it, patch).length) { closeModal(); if (fault) return openFaultFor(it); return toast("No changes to save"); }
             const ok = await updateAsset(id, patch, "Edited via asset form");
-            if (ok) { openDrawers.add(groupKeyOf({ ...it, ...patch })); closeModal(); }
+            if (ok) { openDrawers.add(groupKeyOf({ ...it, ...patch })); closeModal(); if (fault) openFaultFor(assetById(id) || it); }
         }
     } catch (err) {
         console.error(err);
