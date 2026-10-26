@@ -23,7 +23,7 @@ function renderUsers() {
 
     $("pending-users-list").innerHTML = pending.length ? pending.map(u => `<tr>
         <td><b>${esc(u.email)}</b><div class="u-sub">${u.emailVerified ? `<span class="ok-tag">✓ email verified</span>` : `<span class="warn-tag" title="They haven't clicked the link in the verification email yet">email not verified yet</span>`}</div></td><td>${esc(u.displayName || "—")}</td>
-        <td class="mono nowrap">${u.casualId ? esc(u.casualId) + (dupCasual(u) ? ` <span class="custom-badge" title="Another account uses this Casual ID">duplicate</span>` : "") : `<span class="muted">missing</span>`}</td>
+        <td class="mono nowrap">${u.casualId ? esc(u.casualId) + (dupCasual(u) ? ` <span class="custom-badge" title="Another account uses this Casual ID">duplicate</span>` : "") : `<span class="muted">Full-time</span>`}</td>
         <td class="nowrap">${fmtDateTime(u.createdAt)}</td>
         <td><select class="role-select" data-role-for="${esc(u.id)}" aria-label="Role for ${esc(u.email)}">${ROLES.slice().reverse().map(r => `<option>${r}</option>`).join("")}</select></td>
         <td class="nowrap"><button type="button" class="btn btn-ok btn-sm" data-uact="approve" data-uid="${esc(u.id)}" ${u.emailVerified ? "" : `disabled title="Can be approved once they verify their email"`}>Approve</button>
@@ -60,7 +60,7 @@ function loadDraft(id) {
 function accessListItems() {
     const q = lc(accessQuery).trim();
     const tpls = TEMPLATE_ROLES.map(role => ({ id: "tpl:" + role, name: `${role} template`, sub: `What new ${role}s get · ${plural(users.filter(u => u.status === "active" && u.role === role).length, "person")}`, tpl: true }));
-    const people = activeUsers().map(u => ({ id: u.id, name: personName(u), sub: `${u.role} · ${u.casualId || "no Casual ID"} · ${loginLabel(u.email, u.displayName)}`, user: u,
+    const people = activeUsers().map(u => ({ id: u.id, name: personName(u), sub: `${u.role} · ${u.casualId || "Full-time"} · ${loginLabel(u.email, u.displayName)}`, user: u,
         custom: u.role !== "Admin" && differsFromTemplate(u, roleTemplate(u.role)) }));
     const match = it => !q || lc(`${it.name} ${it.sub}`).includes(q);
     return { tpls, people: people.filter(match), total: people.length };   // templates always stay in view
@@ -104,7 +104,7 @@ function accessPaneHtml() {
     const isAdm = d.role === "Admin";
     const title = src.tpl ? `${esc(src.role)} template` : esc(personName(u));
     const sub = src.tpl ? `Copied onto people when they're approved as ${esc(src.role)} or moved to this role. Use “Apply” to push changes to existing ${esc(src.role)}s.`
-        : `${esc(loginLabel(u.email, u.displayName))} · Casual ID <b class="mono">${esc(u.casualId || "—")}</b>${dupCasual(u) ? ` <span class="custom-badge">duplicate</span>` : ""}
+        : `${esc(loginLabel(u.email, u.displayName))} · ${u.casualId ? `Casual ID <b class="mono">${esc(u.casualId)}</b>` : `<b>Full-time</b> (no Casual ID)`}${dupCasual(u) ? ` <span class="custom-badge">duplicate</span>` : ""}
             <button type="button" class="link-btn" data-acc-act="casual">Edit</button>${(crewRoleMap[u.id] || []).length ? ` · Crew roles <b>${(crewRoleMap[u.id]).map(esc).join(" ")}</b> <span class="muted">(ticked in My Availability › Team)</span>` : ""} · <span title="Refreshed about once a day, to keep database reads low">last seen ${u.lastSeen ? fmtDateTime(u.lastSeen) : "never"}</span>`;
 
     const head = `<div class="acc-head">
@@ -344,12 +344,13 @@ async function resetPasswordFor(u) {
 
 async function editCasualId(u) {
     const val = await uiConfirm({ title: `Casual ID · ${personName(u)}`, confirmText: "Save",
-        input: { label: "Casual ID", value: u.casualId || "", placeholder: "e.g. C20417",
-            validate: v => { const n = normCasualId(v); return !n ? "Enter a Casual ID." : !CASUAL_ID_RE.test(n) ? "Letters, numbers, - and / only (up to 30)." : ""; } } });
+        message: "Full-time staff have no Casual ID: leave the box empty and they show as Full-time.",
+        input: { label: "Casual ID (empty = full-time, no Casual ID)", value: u.casualId || "", placeholder: "e.g. C20417, or leave empty",
+            validate: v => { const n = normCasualId(v); return n && !CASUAL_ID_RE.test(n) ? "Letters, numbers, - and / only (up to 30)." : ""; } } });
     if (typeof val !== "string") return;
     const n = normCasualId(val);
     if (n === (u.casualId || "")) return;
-    if (await saveUser(u, { casualId: n }, "Access changed", `Casual ID ${u.casualId || "(none)"} → ${n}`)) toast(`Casual ID saved for ${personName(u)}`);
+    if (await saveUser(u, { casualId: n }, "Access changed", `Casual ID ${u.casualId || "(full-time)"} → ${n || "(full-time)"}`)) toast(n ? `Casual ID saved for ${personName(u)}` : `${personName(u)} marked full-time (no Casual ID)`);
 }
 
 async function saveUser(u, patch, logAction, note) {

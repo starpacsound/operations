@@ -1,4 +1,4 @@
-# Showbase / STAR Inventory - Gear, Shows & Crew (v5.3)
+# Showbase / STAR Inventory - Gear, Shows & Crew (v5.3.1)
 
 A live inventory app for a production / AV team. **Firebase Auth + Firestore** hold the data and logins,
 every change is also pushed **one-way to Google Sheets** as a backup, and the site is a static page hosted on **GitHub Pages**.
@@ -14,7 +14,19 @@ Try it with no setup: open `public/index.html?demo` (offline sample data, quick 
 
 ---
 
-## What's new in v5.3 - Today page, shared show gear, phone app, loan return date TBC
+## What's new in v5.3.1 - full-time staff sign up without a Casual ID
+
+| Area | Change |
+|---|---|
+| Sign-up | New tick under Casual ID: **I'm full-time staff (no Casual ID)**. It clears and disables the Casual ID box; the profile is saved with `casualId: ""`. Casual staff still must enter one. |
+| Approvals · People & Access | A blank Casual ID shows as **Full-time** (it used to say "missing"). The Admin's **Edit** Casual ID box now accepts empty = full-time, so an Admin can also switch someone either way. |
+| Availability | Unchanged: Co-Admins (and anyone with "Mark own available days") still appear in the roster; full-timers just have no Casual ID next to their name. |
+
+**Upgrading from v5.3:** upload `public/index.html`, `public/js/shell.js` and `public/js/admin.js`. No rules, index or Apps Script changes (the rules already allow a blank Casual ID).
+
+---
+
+## What was new in v5.3 - Today page, shared show gear, phone app, loan return date TBC
 
 | Area | Change |
 |---|---|
@@ -363,9 +375,9 @@ Admin always has full access. Everything below is per person, starting from the 
 ## Testing
 ```bash
 npm run serve           # http://localhost:8765/?demo
-npm run test:rules      # 229 security-rule checks on the Firestore emulator (needs Java)
+npm run test:rules      # 230 security-rule checks on the Firestore emulator (needs Java)
 pip install playwright && python3 -m playwright install chromium
-npm run test:e2e        # 299 browser checks in demo mode (both themes) (needs `npm run serve` running)
+npm run test:e2e        # 303 browser checks in demo mode (both themes) (needs `npm run serve` running)
 npm run test:shows      # 23 checks of the Shows Sheet + booking emails script against a mock Sheet + Firestore
 npm run test:bundles    # 22 checks of the bundle logic (no browser needed)
 npm run test:people     # 15 checks of the people copy (no browser needed)

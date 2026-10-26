@@ -53,6 +53,16 @@ function authMsg(err, info) {
     $("auth-info").classList.toggle("hidden", !info);
 }
 
+const fullTimeSignup = () => !!($("auth-fulltime") && $("auth-fulltime").checked);
+function syncFullTimeTick() {
+    const on = fullTimeSignup(), box = $("auth-casual");
+    if (on) box.value = "";
+    box.disabled = on;
+    box.placeholder = on ? "Not needed for full-time staff" : "Your casual staff ID";
+    const lab = document.querySelector("label[for=auth-casual]");
+    if (lab) lab.textContent = on ? "Casual ID" : "Casual ID *";
+}
+
 async function handleAuthSubmit(e) {
     e.preventDefault();
     const typed = $("auth-email").value.trim();
@@ -61,7 +71,7 @@ async function handleAuthSubmit(e) {
         // Every sign-up field is compulsory; check them top to bottom so the first gap is named.
         const name = $("auth-name").value.trim();
         if (!name) return authMsg("Enter your full name.");
-        if (!normCasualId($("auth-casual").value)) return authMsg("Enter your Casual ID.");
+        if (!fullTimeSignup() && !normCasualId($("auth-casual").value)) return authMsg("Enter your Casual ID, or tick \"I'm full-time staff\".");
         if (!typed) return authMsg("Enter your email address.");
         if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(typed)) return authMsg(typed.includes("@") ? "That email address doesn't look right." : "Use your email address to create an account.");
         if (!pw) return authMsg("Choose a password.");
@@ -76,9 +86,10 @@ async function handleAuthSubmit(e) {
     btn.disabled = true;
     try {
         if (authTab === "signup") {
-            const casualId = normCasualId($("auth-casual").value);
-            if (!casualId) throw new Error("Enter your Casual ID.");
-            if (!CASUAL_ID_RE.test(casualId)) throw new Error("Casual ID can only use letters, numbers, - and / (up to 30 characters).");
+            // Full-time staff have no Casual ID: it's saved blank and shows as "Full-time".
+            const casualId = fullTimeSignup() ? "" : normCasualId($("auth-casual").value);
+            if (!casualId && !fullTimeSignup()) throw new Error("Enter your Casual ID.");
+            if (casualId && !CASUAL_ID_RE.test(casualId)) throw new Error("Casual ID can only use letters, numbers, - and / (up to 30 characters).");
             if (pw !== $("auth-password2").value) throw new Error("Passwords don't match.");
             if (pw.length < 8) throw new Error("Password must be at least 8 characters.");
             await store.signUp(email, pw, $("auth-name").value.trim(), casualId);
@@ -605,6 +616,7 @@ function boot() {
         });
     });
 
+    if ($("auth-fulltime")) $("auth-fulltime").addEventListener("change", syncFullTimeTick);
     setAuthTab("signin");
     Backup.init(store, cacheLookup, renderBackupBadge);
     window.addEventListener("online", () => Backup.flush());
