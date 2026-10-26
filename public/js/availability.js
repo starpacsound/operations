@@ -194,9 +194,9 @@ const availAlerts = () => canBook() ? availGrid.reduce((n, d) => n + (d.withdraw
 
 // Everyone on the roster for the month on screen: people with a month doc, plus (from the users list,
 // which Admins and bookers can read) everyone allowed to mark availability who hasn't started yet.
-function rosterPeople() {
+function rosterPeople(grid = availGrid) {
     const rolesOf = uid => crewRoleMap[uid] || [];
-    const rows = availGrid.map(d => ({ uid: d.uid, name: d.name || "", casualId: d.casualId || "", roles: rolesOf(d.uid), doc: d }));
+    const rows = grid.map(d => ({ uid: d.uid, name: d.name || "", casualId: d.casualId || "", roles: rolesOf(d.uid), doc: d }));
     users.filter(u => u.status === "active" && u.role !== "Admin" && effectivePerm(u).avail.edit && !rows.some(r => r.uid === u.id))
         .forEach(u => rows.push({ uid: u.id, name: personNameOf(u), casualId: u.casualId || "", roles: rolesOf(u.id), doc: null }));
     return rows;
@@ -410,7 +410,7 @@ function maybeAskToast() {
     const a = pendingAsks()[0];
     if (!a) return;
     askToastShown = true;
-    toast(`📝 Please fill in your availability for ${monthTitle(a.month)} (Availability tab).`);
+    toast(`📝 Please fill in your availability for ${monthTitle(a.month)} (My Availability).`);
 }
 
 function remindPanelHtml() {
@@ -443,9 +443,9 @@ function remindPanelHtml() {
     </details>`;
 }
 
-async function remindNow(kind) {
-    const m = availMonth;
-    const people = rosterPeople();
+// m / grid: another month than the one on screen (the Today page reminds for next month).
+async function remindNow(kind, m = availMonth, grid = availGrid) {
+    const people = rosterPeople(grid);
     const missing = people.filter(p => !monthFilled(p.doc));
     const uids = kind === "all" ? missing.map(p => p.uid) : [...document.querySelectorAll("[data-rm-uid]:checked")].map(c => c.dataset.rmUid);
     if (!uids.length) return toast(kind === "all" ? "Everyone has filled it in." : "Tick the people to remind first.", "err");

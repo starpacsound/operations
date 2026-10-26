@@ -1,4 +1,4 @@
-# Showbase / STAR Inventory - Asset System (v5.2.3)
+# Showbase / STAR Inventory - Gear, Shows & Crew (v5.3)
 
 A live inventory app for a production / AV team. **Firebase Auth + Firestore** hold the data and logins,
 every change is also pushed **one-way to Google Sheets** as a backup, and the site is a static page hosted on **GitHub Pages**.
@@ -14,7 +14,25 @@ Try it with no setup: open `public/index.html?demo` (offline sample data, quick 
 
 ---
 
-## What's new in v5.2.3 - Faulty opens the fault report, "No code" filter
+## What's new in v5.3 - Today page, shared show gear, phone app, loan return date TBC
+
+| Area | Change |
+|---|---|
+| **Today** (new first page) | The app now opens on **Today**. At the top, **My next show**: the next show or maintenance call you're booked on (today's first), with call time, venue + Google Maps link, your role, the team with their roles, and a **Sign out gear** button. Below, **Needs you** tiles, each only if you have the permission for it: fault reports to verify, loans to approve / receive, overdue loans, loans with return date TBC out over 30 days, shows this week short of crew, gear still signed out (⚠ when past the show date), and "N people haven't filled <next month>" with a **Remind them** button (same reminder as My Availability › Team). It uses data already loaded; bookers add 2 small reads while Today is open (this week's jobs, next month's availability copy). |
+| **Shared show gear** | **Sign out gear** on the Today card (or on a job in the Show Calendar) starts that job's sign-out with the title, date and venue filled in, saved as `shows/job_<jobId>` with `jobId` and `crewUids`. The first press creates it; later presses open the same list. Everyone booked on the job can see it, **+ Add gear**, tick items back in (each tick is saved for the whole crew, 1 write) and **Sign In**. When a booker adds or removes someone on the job, the list's crew follows in the same save. Nobody else can see it (members still only see their own plain sign-outs). Full-timers see the list on the job in the **Show Calendar**: missing items or gear still out after the show get a ⚠ on the calendar chip. Sign-outs not linked to a job work as before. |
+| **Phone app** | The site can be installed: Android Chrome shows **Install app** (also a button on Today); on iPhone use Safari › Share › **Add to Home Screen** (short how-to on Today). `manifest.webmanifest`, icons in `public/icons/`, and `sw.js`, a service worker that keeps a copy of the app's own files for quick loads. It always asks the server first, so an upload reaches everyone straight away; the saved copy is only used with no connection. Firebase / Google requests are never cached: live data still needs internet. On iPhone the home-screen icon uses your branding logo. |
+| **Loan return date TBC** | A **Return date TBC** tick in **+ Request Loan** and in the catalogue's **On Loan** pop-up clears the date (`returnDate: ""`, `returnTbc: true`). "TBC" shows on loan cards, approvals, the catalogue loan tag, the collect message, logs and the backup Sheet. A TBC loan is never overdue. Loan managers and the borrower can **Set return date** later (logged). TBC loans out over 30 days are listed on Today. |
+| **Menu names** | Maintenance → **Faults & Repairs** · Events → **Crew** · Availability → **My Availability** · Calendar → **Show Calendar** · Log History → **Activity Log** · Users & Permissions → **People & Access** · Branding → **Settings** · tagline "Inventory & Asset Control" / "Asset System" → **Gear, Shows & Crew**. The calendar's "maintenance call" job type keeps its name. Unchanged: Inventory, Asset Catalogue, Rack Layout, Inventory Check, Operations, Show Sign-Out, Equipment Loans, Admin. |
+
+**Upgrading from v5.2.3:**
+1. Publish the new `firestore.rules` (Firebase console › Firestore › Rules, paste, Publish).
+2. Add one composite index (Firestore › Indexes › Composite › Create): collection `shows`, fields `crewUids` **Arrays** + `showDate` **Ascending**, query scope Collection. Wait until it says Enabled.
+3. Upload to GitHub: `public/index.html`, `public/manifest.webmanifest`, `public/sw.js`, the `public/icons/` folder, `public/css/components.css`, and in `public/js/`: `today.js` (new), `shows.js`, `shell.js`, `events.js`, `jobs.js`, `availability.js`, `loans.js`, `inventory.js`, `core.js`, `perms.js`, `admin.js`, `logs.js`, `store.js`.
+4. Optional: paste the new `apps-script/Code.gs` into the backup Sheet's Apps Script editor (keep your `CFG` values, including the second API key) and deploy a new version, so TBC loans show "TBC" in the Loans tab instead of a blank.
+
+---
+
+## What was new in v5.2.3 - Faulty opens the fault report, "No code" filter
 
 | Area | Change |
 |---|---|
@@ -197,8 +215,9 @@ The app now feeds **3 Google Sheets**: inventory backup (one-way), availability 
 | `public/js/backup.js` | Queue that pushes every change to Google Sheets, with retry |
 | `public/js/combo.js` | The type-or-select combo-box |
 | `public/js/core.js` | Shared state, helpers, dialogs, write + log pipeline |
-| `public/js/inventory.js` · `rack.js` · `maintenance.js` · `loans.js` · `shows.js` · `availability.js` · `jobs.js` · `logs.js` · `admin.js` | One file per module |
-| `public/js/pdf.js` | Shared PDF report layout (Log History, Inventory Check history) |
+| `public/js/inventory.js` · `rack.js` · `maintenance.js` · `loans.js` · `shows.js` · `availability.js` · `jobs.js` · `events.js` · `today.js` · `logs.js` · `admin.js` | One file per module (`today.js` = the Today page) |
+| `public/manifest.webmanifest` · `public/sw.js` · `public/icons/` | Install as a phone app: name, icons, theme colour; service worker (network first, never caches Firebase) |
+| `public/js/pdf.js` | Shared PDF report layout (Activity Log, Inventory Check history) |
 | `public/js/shell.js` | Sign-in, routing, live subscriptions, branding, badges (loads last) |
 | `public/css/base.css` · `components.css` | Theme tokens + layout · module styles |
 | `public/vendor/` | jsPDF 2.5.2 + AutoTable 3.8.4 (MIT), bundled so PDF export works offline |
@@ -221,13 +240,13 @@ The app now feeds **3 Google Sheets**: inventory backup (one-way), availability 
 | `users/{uid}` | `casualId`, `mustChangePassword` (+ `tempPasswordSetAt/By`, `passwordChangedAt`), `role`, `status`, `isPrimary`, `perm{module:{feature}}`, `viewCols`, `editCols`, `viewCats`, `editCats`, `updatedAt` (stamped on every save except last seen) | Admin (self: name / last seen; Casual ID set at sign-up, Admin-only after) |
 | `inventory/{id}` | Asset fields, `kind` (detailed / general), `qty` (general), `yearOfPurchase`, + `wfCol/wfRef/wfStep` tag on workflow moves | Edit rights · workflows · Admin |
 | `maintenance/{id}` | Ticket: `stage` request → confirmed → repairing → closed / rejected | Anyone raises; Manage maintenance runs it |
-| `loans/{id}` | `borrowerName`, `source` (request / catalogue), `items[]`, `collectDate`, `returnDate`, `reason`, `status`, `assigned[]`, `history[]` | Requester: create / cancel / Collected / Return · loan managers: the rest · catalogue lenders: create catalogue loans |
-| `shows/{id}` | `title`, `showDate`, `venue` (required), `items[{name, qty, accounted}]`, `status` out/in, `missingCount` | Owner while out · never deleted (primary Admin only) |
+| `loans/{id}` | `borrowerName`, `source` (request / catalogue), `items[]`, `collectDate`, `returnDate` (`""` with `returnTbc: true` = TBC), `reason`, `status`, `assigned[]`, `history[]` | Requester: create / cancel / Collected / Return / set a TBC return date · loan managers: the rest · catalogue lenders: create catalogue loans |
+| `shows/{id}` | `title`, `showDate`, `venue` (required), `items[{name, qty, accounted}]`, `status` out/in, `missingCount`; job sign-outs (`shows/job_<jobId>`) also `jobId`, `crewUids[]` (copied from the job) | Owner while out · job sign-outs: everyone on the job's crew (add gear, tick, sign in; lines can't be removed) and bookers (crew list only, must match the job) · never deleted (primary Admin only) |
 | `audits/{roundId}` | Check round: `venue`, `name`, `status` open/closed, started/closed by + at, frozen `summary` (total, checked, discrepancies, items) | Start/finish: rounds permission · delete: history-delete permission |
 | `checkTicks/{roundId}_{n}` | A round's ticks, ~200 assets per record: `ticks{assetId: {checked, at, by, byName, byUid}}`, `last` (cleared when the round finishes; the round's `shards` says how many) | Anyone with the Check tab, while the round is open |
 | `discrepancies/{id}` | `current{}`, `proposed{}`, `missing`, `note`, `status` | Reporter creates · Manage checks reviews |
 | `avail/{uid}_{YYYY-MM}` | One person, one month: `avail[]` free days (incl. booked), `soft[]`, `conf[]`, `withdrawn[]`, `name`, `casualId`, `times{day: "HH:MM-HH:MM"}` (no entry = all day) (days are `"01"`…`"31"`) | Member: own free days, withdraw soft · bookers: bookings · the roster Sheet script (as project owner) |
-| `crewRoles/all` | `roles{uid: [..]}`, `updatedAt`, `updatedBy` - every crew role tick (SE / ST / CRS / NEW) in one record | Bookers tick them in Availability › Team · readable by Admins / Co-Admins (see-everyone or booking rights), never members |
+| `crewRoles/all` | `roles{uid: [..]}`, `updatedAt`, `updatedBy` - every crew role tick (SE / ST / CRS / NEW) in one record | Bookers tick them in My Availability › Team · readable by Admins / Co-Admins (see-everyone or booking rights), never members |
 | `jobs/{id}` | One show or maintenance call on one date: `kind` show/maint, `date`, `month`, `title`, `start`, `end` (HH:MM), `venue`, `manpower[{role, qty}]`, `notes`, `crew[{uid, name, casualId, role}]`, `crewUids[]` | Bookers (Admin / Co-Admin) · readable by bookers and by the people on it |
 | `settings/rosterLists` | Remembered `titles`, `maintTitles`, `roles`, `times` for type-and-select | Bookers |
 | `reminders/{id}` | `month`, `uids[]`, `byUid`, `byName`, `at` - an availability reminder | Bookers create · members read the ones naming them · can't be edited |
@@ -238,7 +257,7 @@ The app now feeds **3 Google Sheets**: inventory backup (one-way), availability 
 | `availMonths/{YYYY-MM}` | `rows{availDocId: doc}`, `mark`, `builtAt`, `n` - one copy of a whole month for the team grid | Admins / Co-Admins who can see everyone's availability |
 | `peopleCopy/all`, `peopleCopy/active` | `rows{uid: profile}`, `mark`, `builtAt`, `n` - one copy of every profile (all) or of active people (active) | all: Admins · active: Admins and bookers |
 
-**Upgrading from v3:** profiles stored `tabs{}` + `can{}`. The app translates them on the fly, but the v4 rules only read `perm{}`. After deploying, open **Users & Permissions** and pick each template and click **Apply to N …** (or save any person, which writes their full `perm` map). `settings/audit` is no longer used.
+**Upgrading from v3:** profiles stored `tabs{}` + `can{}`. The app translates them on the fly, but the v4 rules only read `perm{}`. After deploying, open **People & Access** and pick each template and click **Apply to N …** (or save any person, which writes their full `perm` map). `settings/audit` is no longer used.
 
 ---
 
@@ -262,7 +281,7 @@ The host signs in with a **username** (`Starpacsound Admin`) instead of an email
 1. Finish **step 3** (backup Sheet + Apps Script), then **reload the Google Sheet**. A **Showbase admin** menu appears.
 2. **Showbase admin → Set up / recover host account…** → type the host password → OK. (First run: Google asks you to authorise.)
    This creates the login and its primary-Admin profile. The password is never stored in any file.
-3. Open the app and sign in with **Username:** `Starpacsound Admin` + that password. Set the name and logo in **Admin › Branding**, then approve everyone else in **Users & Permissions**.
+3. Open the app and sign in with **Username:** `Starpacsound Admin` + that password. Set the name and logo in **Admin › Branding**, then approve everyone else in **People & Access**.
 
 **Forgot the host password?** Run the same menu item again and type a new one. Only someone who can edit the Sheet *and* owns the Firebase project can do this.
 To change the host username, edit `HOST_USERNAME` in `apps-script/Code.gs` (the sign-in address is derived from it, e.g. `starpacsound.admin@showbase.local`).
@@ -301,7 +320,7 @@ Repo **Settings → Pages → Source: GitHub Actions**. Every push to `main` red
 
 ## Permissions
 
-Admin always has full access. Everything below is per person, starting from the role template (Users & Permissions › People & access: pick → tick → Save).
+Admin always has full access. Everything below is per person, starting from the role template (People & Access: pick → tick → Save). **Today** is open to everyone and only shows what each person has permission for.
 
 | Module | Feature | Co-Admin | Member | Server-enforced |
 |---|---|---|---|---|
@@ -311,15 +330,15 @@ Admin always has full access. Everything below is per person, starting from the 
 | Rack Layout | See the tab | ✅ | ✅ | UI |
 | Inventory Check | See & tick · Report discrepancies | ✅ | ✅ | ✅ |
 | | Start/finish rounds · Review discrepancies · History & PDF · Delete history | ✅ | ❌ | ✅ |
-| Maintenance | See the tab | ✅ | ✅ | UI |
+| Faults & Repairs | See the tab | ✅ | ✅ | UI |
 | | Submit requests | ✅ | ✅ | ✅ |
 | | See everyone's requests · See Confirmed & Repairing | ✅ | ❌ (own only) | ✅ |
 | | Verify / reject · Send to repair / mark repaired | ✅ | ❌ | ✅ |
 | Loans | See the tab · Request | ✅ | ✅ | ✅ (request) |
 | | See everyone's · Approve/assign/receive · Set On Loan from catalogue | ✅ | ❌ | ✅ |
 | Show Sign-Out | See the tab · Sign gear out | ✅ | ✅ | ✅ (sign out) |
-| | See everyone's shows | ✅ | 🔒 never (own only) | ✅ |
-| Log History | See the tab | ✅ | ❌ | ✅ |
+| | See everyone's shows | ✅ | 🔒 never (own + the shared lists of jobs they're booked on) | ✅ |
+| Activity Log | See the tab | ✅ | ❌ | ✅ |
 | | Download PDF | ✅ | ❌ | UI |
 | Data scope | Columns see / edit, categories see / edit | all | all / none | Edit ✅ · column visibility UI only* |
 
@@ -331,9 +350,9 @@ Admin always has full access. Everything below is per person, starting from the 
 
 **Maintenance**  Report fault → ① Requests → *Verify & Confirm* (condition, move-to space/location) → ② Confirmed Faulty → *Send to Repair* (vendor, date) → ③ Repairing → *Mark Repaired* (condition, space, location, serial, cost, notes optional) → back in the catalogue.
 
-**Loans**  Request (names + qty, collect ≥ 2 days ahead, return ≥ collect, reason optional) → approver assigns exact units (details auto-fill, units → On Loan) → borrower **Collected** → borrower **Return** → approver checks each unit in (condition, space, location). Approvers can also reject, or cancel an approved loan (units go back to their previous condition).
+**Loans**  Request (names + qty, collect ≥ 2 days ahead, return ≥ collect or **Return date TBC**, reason optional) → approver assigns exact units (details auto-fill, units → On Loan) → borrower **Collected** → borrower **Return** → approver checks each unit in (condition, space, location). Approvers can also reject, or cancel an approved loan (units go back to their previous condition).
 
-**Show Sign-Out**  Title + date + venue (required, pick from the list) → add gear by name and quantity → after the show, tick what's back → **Sign In**. Unticked lines are recorded as missing and logged. Show lists don't change catalogue status, because they're names, not specific units.
+**Show Sign-Out**  Title + date + venue (required, pick from the list) → add gear by name and quantity → after the show, tick what's back → **Sign In**. Unticked lines are recorded as missing and logged. Show lists don't change catalogue status, because they're names, not specific units. **For a calendar show** use **Sign out gear** on Today or the job in the Show Calendar: the list is shared with everyone booked on the job, any of them can add gear, tick items (saved for all) and sign it in.
 
 **Inventory Check**  A manager starts a round for one venue (Item Space). Everyone ticks what they can see; several venues can run at once. **Finish round** saves a frozen summary (verified / not found per item) to **History**, downloadable as PDF and kept until someone with permission deletes it. **Report discrepancy** proposes changes (counted quantity for bulk items) or marks an item missing; nothing changes until a manager approves it.
 
@@ -344,13 +363,13 @@ Admin always has full access. Everything below is per person, starting from the 
 ## Testing
 ```bash
 npm run serve           # http://localhost:8765/?demo
-npm run test:rules      # 203 security-rule checks on the Firestore emulator (needs Java)
+npm run test:rules      # 229 security-rule checks on the Firestore emulator (needs Java)
 pip install playwright && python3 -m playwright install chromium
-npm run test:e2e        # 270 browser checks in demo mode (both themes) (needs `npm run serve` running)
+npm run test:e2e        # 299 browser checks in demo mode (both themes) (needs `npm run serve` running)
 npm run test:shows      # 23 checks of the Shows Sheet + booking emails script against a mock Sheet + Firestore
 npm run test:bundles    # 22 checks of the bundle logic (no browser needed)
 npm run test:people     # 15 checks of the people copy (no browser needed)
-npm run test:backup     # 8 checks of the backup Sheet writer (SGT times, Deleted Inventory tab)
+npm run test:backup     # 9 checks of the backup Sheet writer (SGT times, Deleted Inventory tab, TBC return dates)
 ```
 
 ## Security checklist (before go-live)
@@ -373,8 +392,10 @@ What is enforced where: the **database rules** enforce every permission (approva
 - A restricted user could see at most 30 categories before the bundles are built (a Firestore query limit); with bundles there's no limit.
 - Bundles: the browser copy can be cleared by the browser (e.g. Safari after 7 days without a visit, private windows). That just means one full download (about 15 reads). Everyone's inventory saves also update one shared record (`invMeta/changes`), which Firestore handles at about one save per second sustained - far above normal team use; clashing saves retry automatically.
 - The month copy for the team grid and the people copy rely on each device's clock (with 10 minutes' leeway); they are rebuilt from scratch at least once a day.
-- Log History search and filters only look through the entries loaded so far (newest 50 + any you load). The PDF reads straight from the database, so it always covers the full range you pick.
+- Activity Log search and filters only look through the entries loaded so far (newest 50 + any you load). The PDF reads straight from the database, so it always covers the full range you pick.
 - Removing someone's login entirely is done in Firebase console → Authentication; the app can disable them instantly.
 - The Sheets backup is pushed from the browser. If a tab closes mid-send the change is retried on that browser's next visit; the optional nightly snapshot covers the rest.
 - General (bulk) items are one record: a loan or condition change applies to the whole batch. Split the batch (edit the quantity and add a second record) if part of it goes out.
 - PDF export uses standard PDF fonts, so non-Latin characters (e.g. Chinese names) are dropped from the PDF. They still show in the app and the CSV.
+- Members see shared job gear lists from the last 60 days (plus any they open from Today or the calendar). Older ones stay in the database and full-timers still see them all.
+- The installed phone app still needs internet for data; with no connection it opens but can't load or save anything. iPhone only installs from Safari.

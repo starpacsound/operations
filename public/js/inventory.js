@@ -13,7 +13,7 @@ function assetTags(it) {
     const t = openTicketFor(it.id), l = openLoanFor(it.id), d = pendingDiscFor(it.id);
     return [
         t ? `<button type="button" class="ticket-tag stage-${t.stage}" data-action="goto" data-view="maintenance" title="Open maintenance ticket">${esc(stageLabel(t.stage))}</button>` : "",
-        l ? `<button type="button" class="ticket-tag loan" data-action="goto" data-view="loans" title="On loan to ${esc(loanWho(l))} - due ${esc(l.returnDate)}">📦 ${esc(loanWho(l).split(" ")[0])}</button>` : "",
+        l ? `<button type="button" class="ticket-tag loan" data-action="goto" data-view="loans" title="On loan to ${esc(loanWho(l))} - due ${esc(loanReturnRaw(l))}">📦 ${esc(loanWho(l).split(" ")[0])}</button>` : "",
         d ? `<button type="button" class="ticket-tag disc" data-action="goto" data-view="check" title="Discrepancy waiting for review">Reported</button>` : "",
         needsFinance(it) ? `<span class="ticket-tag finance" title="Bought ${esc(it.yearOfPurchase)} - no finance code yet">Needs code</span>` : ""
     ].join("");
@@ -325,7 +325,7 @@ async function changeCondition(sel) {
     const loan = it.condition === "On Loan" && openLoanFor(it.id);
     if (loan && can("loans", "manage")) {
         const close = await uiConfirm({ title: `Close the loan to ${loanWho(loan)}?`, confirmText: "Close loan & update", cancelText: "Only change condition",
-            message: `${assetLabel(it)} is on loan (due ${fmtDate(loan.returnDate)}). Closing records it as returned in Equipment Loans.` });
+            message: `${assetLabel(it)} is on loan (due ${loanReturnText(loan)}). Closing records it as returned in Equipment Loans.` });
         if (close) return closeLoanFromCatalogue(it, loan, next);
     }
     updateAsset(it.id, { condition: next });

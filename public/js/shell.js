@@ -10,6 +10,7 @@ let pendingRender = false;
 let authTab = "signin";
 
 const VIEWS = {
+    today: { always: true, render: renderToday },
     catalogue: { tab: "catalogue", render: renderCatalogue },
     rack: { tab: "rack", render: renderRack },
     check: { tab: "check", render: renderCheck },
@@ -22,7 +23,7 @@ const VIEWS = {
     branding: { admin: true, render: renderBranding },
     events: { tab: "events", render: renderEvents }
 };
-const canOpenView = v => { const d = VIEWS[v]; return !!d && (d.placeholder ? true : d.admin ? isAdmin() : tabOn(d.tab)); };
+const canOpenView = v => { const d = VIEWS[v]; return !!d && (d.placeholder || d.always ? true : d.admin ? isAdmin() : tabOn(d.tab)); };
 const firstView = () => Object.keys(VIEWS).find(v => !VIEWS[v].placeholder && canOpenView(v)) || "events";
 
 // =====================================================================
@@ -107,7 +108,7 @@ function doSignOut() { store.signOut(); }
 function teardown() {
     stopData();
     if (profileUnsub) { profileUnsub(); profileUnsub = null; }
-    profile = null; inventory = []; tickets = []; loans = []; shows = []; availMine = []; reminders = []; askToastShown = false; availMonth = ""; availTab = "mine"; crewRoleMap = {}; myJobs = []; stopAvailGrid(); stopMonthJobs(); settings.rosterLists = null; settings.availability = null; checks = {}; audits = []; discrepancies = []; logs = []; users = [];
+    profile = null; inventory = []; tickets = []; loans = []; shows = []; availMine = []; reminders = []; askToastShown = false; availMonth = ""; availTab = "mine"; crewRoleMap = {}; myJobs = []; showOpen.clear(); stopAvailGrid(); stopMonthJobs(); settings.rosterLists = null; settings.availability = null; checks = {}; audits = []; discrepancies = []; logs = []; users = [];
     settings.roles = null; settings.venues = null; settings.conditions = null; applyConditions(null); selectedRound = null;
     appRunning = false; permKey = ""; invLoaded = false; editMode = false; brandDraft = null;
     openDrawers.clear();
@@ -255,7 +256,7 @@ function startApp() {
     startData();
     store.commit([{ op: "update", col: "users", id: authUser.uid, data: { lastSeen: nowIso() } }]).catch(() => {});
     const want = (location.hash || "").replace("#", "");
-    switchView(canOpenView(want) ? want : canOpenView(currentView) ? currentView : firstView(), true);
+    switchView(canOpenView(want) ? want : firstView(), true);
 }
 
 function applyRoleVisibility() {
@@ -304,7 +305,7 @@ function startData() {
     const projectKey = (window.APP_CONFIG && APP_CONFIG.firebase && APP_CONFIG.firebase.projectId) || "";
     dataUnsubs.push(Bundles.watchInventory(store, { uid, cats: isAdmin() ? [] : cats, projectKey }, (rows, info) => {
         inventory = rows; invLoaded = true; invError = false; bundlesLegacy = !!(info && info.legacy);
-        if (bundlesLegacy && isAdmin() && !bundleTipShown) { bundleTipShown = true; toast("Inventory bundles aren't built yet. Build them in Branding › Inventory bundles to keep reads low."); }
+        if (bundlesLegacy && isAdmin() && !bundleTipShown) { bundleTipShown = true; toast("Inventory bundles aren't built yet. Build them in Settings › Inventory bundles to keep reads low."); }
         if (store.mode === "cloud") setSync("ok");
         refreshDynamicDropdowns();
         requestRender();
@@ -327,7 +328,11 @@ function startData() {
     }
     const allLoans = can("loans", "manage") || can("loans", "viewAll");
     if (tabOn("loans") || allLoans) sub("loans", allLoans ? {} : { where: [["requestedByUid", "==", uid]] }, rows => { loans = rows; dataChanged(); }, "loans");
-    if (tabOn("shows") || can("shows", "viewAll")) sub("shows", can("shows", "viewAll") ? {} : { where: [["createdByUid", "==", uid]] }, rows => { shows = rows; dataChanged(); }, "shows");
+    // Shows: own sign-outs (or all, for full-timers), plus the shared lists of jobs I'm booked on (last 60 days on).
+    let showsOwn = [], showsCrew = [];
+    const mergeShows = () => { const m = new Map(); [...showsOwn, ...showsCrew].forEach(s => m.set(s.id, s)); shows = [...m.values()]; dataChanged(); };
+    if (tabOn("shows") || can("shows", "viewAll")) sub("shows", can("shows", "viewAll") ? {} : { where: [["createdByUid", "==", uid]] }, rows => { showsOwn = rows; mergeShows(); }, "shows");
+    if (!can("shows", "viewAll")) sub("shows", { where: [["crewUids", "array-contains", uid], ["showDate", ">=", addDays(-60)]] }, rows => { showsCrew = rows; mergeShows(); }, "your shows' gear lists");
     if (tabOn("avail")) {
         dataUnsubs.push(store.watchDoc("settings", "availability", d => { settings.availability = d; if (currentView === "availability") renderAvailability(); }, () => {}));
         if (can("avail", "edit")) sub("avail", { where: [["uid", "==", uid]] }, rows => { availMine = rows; dataChanged(); maybeAskToast(); }, "your availability");
@@ -336,9 +341,9 @@ function startData() {
         else if (can("avail", "edit")) sub("reminders", { where: [["uids", "array-contains", uid]] }, rows => { reminders = rows; dataChanged(); maybeAskToast(); }, "reminders");
         // Bookers who aren't Admin need the active people list to see who hasn't filled in yet.
         if (canBook() && !isAdmin()) dataUnsubs.push(People.watch(store, { all: false }, rows => { users = rows; dataChanged(); }, onErr("people")));
-        // Shows / maintenance calls I'm booked on (with teammates)
-        sub("jobs", { where: [["crewUids", "array-contains", uid]] }, rows => { myJobs = rows; if (["availability", "events"].includes(currentView)) requestRender(true); }, "your shows");
     }
+    // Shows / maintenance calls I'm booked on (with teammates): Availability, Calendar and the Today card.
+    sub("jobs", { where: [["crewUids", "array-contains", uid]] }, rows => { myJobs = rows; if (["availability", "events", "today"].includes(currentView)) requestRender(true); }, "your shows");
     // Crew role ticks: Admins / Co-Admins only (the rules refuse everyone else).
     if (canBook()) dataUnsubs.push(store.watchDoc("settings", "rosterLists", d => { settings.rosterLists = d; }, () => {}));
     if (canSeeAll()) {
@@ -383,6 +388,7 @@ function stopData() {
     dataUnsubs.forEach(u => { try { u(); } catch (e) { /* ignore */ } });
     dataUnsubs = [];
     stopTicks();
+    stopToday();
     stopAvailGrid();
     stopMonthJobs();
 }
@@ -418,6 +424,7 @@ function switchView(view, silent) {
     if (currentView !== view) ["rack", "check"].forEach(v => { if (v === currentView && v !== view && $(`${v}-container`)) $(`${v}-container`).innerHTML = ""; });
     currentView = view;
     syncTicks();
+    syncToday();
     const d = VIEWS[view];
     const panel = d.placeholder ? "placeholder" : view;
     document.querySelectorAll(".view").forEach(s => s.classList.toggle("hidden", s.id !== `view-${panel}`));
@@ -444,7 +451,7 @@ function renderNavBadges() {
     setBadge("badge-loans", can("loans", "manage") ? loans.filter(l => l.status === "requested" || l.status === "returnRequested").length
         : loans.filter(l => loanMine(l) && l.status === "approved").length, !can("loans", "manage"));
     setBadge("badge-check", can("check", "review") ? discrepancies.filter(d => d.status === "pending").length : 0);
-    setBadge("badge-shows", shows.filter(s => s.status === "out" && s.createdByUid === authUser.uid).length, true);
+    setBadge("badge-shows", shows.filter(s => s.status === "out" && (s.createdByUid === authUser.uid || onShowCrew(s))).length, true);
     setBadge("badge-avail", (can("avail", "edit") ? unseenBookings().length + pendingAsks().length : 0) + availAlerts(), true);
     setBadge("badge-users", isAdmin() ? users.filter(u => u.status === "pending").length : 0);
 }
@@ -466,7 +473,11 @@ function applyBranding() {
         ini.classList.toggle("hidden", !!logo);
         ini.textContent = initials(name);
     });
-    document.title = `${name} · Asset System`;
+    document.title = `${name} · Gear, Shows & Crew`;
+    // iPhone "Add to Home Screen" uses these at the moment it's added: the branded logo and name.
+    if ($("apple-icon")) $("apple-icon").href = logo || "icons/apple-touch-icon.png";
+    const appTitle = document.querySelector('meta[name="apple-mobile-web-app-title"]');
+    if (appTitle) appTitle.content = name;
     let fav = $("favicon");
     if (!fav) { fav = document.createElement("link"); fav.id = "favicon"; fav.rel = "icon"; document.head.appendChild(fav); }
     fav.href = logo || `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="#6cc1ea"/><text x="32" y="42" font-family="Arial" font-weight="700" font-size="26" text-anchor="middle" fill="#0d1b24">${initials(name)}</text></svg>`)}`;
@@ -585,7 +596,7 @@ function boot() {
     store.onAuth(async user => {
         teardown();
         authUser = user;
-        if (!user) { currentView = "catalogue"; history.replaceState(null, "", location.pathname + location.search); showScreen("login"); return; }
+        if (!user) { currentView = "today"; history.replaceState(null, "", location.pathname + location.search); showScreen("login"); return; }
         showScreen("loading");
         try { await store.ensureProfile(user); } catch (err) { console.error(err); }
         profileUnsub = store.watchDoc("users", user.uid, onProfile, err => {
@@ -601,3 +612,8 @@ function boot() {
 }
 
 boot();
+
+// Phone app (PWA, v5.3): sw.js keeps a copy of the app's files so it opens fast and can be installed.
+// Only on the live https site (or with ?sw for testing), so local demo runs never get a stale copy.
+if ("serviceWorker" in navigator && (location.protocol === "https:" || /[?&]sw\b/.test(location.search)))
+    window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(err => console.warn("Service worker not registered:", err)));

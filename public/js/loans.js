@@ -12,13 +12,30 @@ const LOAN_STATUS = {
 };
 const LOAN_FLOW = ["requested", "approved", "collected", "returnRequested", "returned"];
 const loanItemsText = l => (l.items || []).map(i => `${i.qty} × ${i.name}`).join(", ");
-const isLoanOverdue = l => ["collected", "returnRequested"].includes(l.status) && l.returnDate && l.returnDate < today();
+const isLoanOverdue = l => ["collected", "returnRequested"].includes(l.status) && !l.returnTbc && l.returnDate && l.returnDate < today();
+// v5.3: return date "TBC" (returnTbc: true, returnDate ""). Never overdue; listed on Today once out over 30 days.
+const loanTbc = l => !!l.returnTbc && !l.returnDate;
+const loanReturnText = l => loanTbc(l) ? "TBC" : fmtDate(l.returnDate);   // for display
+const loanReturnRaw = l => loanTbc(l) ? "TBC" : (l.returnDate || "");      // for logs / messages
+const isLoanTbcLong = l => ["collected", "returnRequested"].includes(l.status) && loanTbc(l) && daysBetween(String(l.collectedAt || l.collectDate).slice(0, 10), today()) > 30;
+// The "Return date TBC" tick: clears and disables the date box.
+const tbcTickHtml = (id, on) => `<label class="check-inline tbc-tick"><input type="checkbox" id="${id}" ${on ? "checked" : ""}> Return date TBC</label>`;
+function bindTbcTick(root, tickSel, dateSel, after) {
+    const tick = root.querySelector(tickSel), date = root.querySelector(dateSel);
+    let kept = date.value;
+    tick.addEventListener("change", () => {
+        if (tick.checked) { kept = date.value || kept; date.value = ""; } else date.value = kept;
+        date.disabled = tick.checked;
+        if (after) after();
+    });
+}
 const loanMine = l => authUser && l.requestedByUid === authUser.uid;
 
 function loanCard(l, approver) {
     const mine = loanMine(l);
     const overdue = isLoanOverdue(l);
     const nights = l.collectDate && l.returnDate ? daysBetween(l.collectDate, l.returnDate) : 0;
+    const canSetDate = loanTbc(l) && ["approved", "collected", "returnRequested"].includes(l.status) && (approver || mine);
     const step = LOAN_FLOW.indexOf(l.status);
     const showUnits = approver && (l.assigned || []).length;
     const actions = [];
@@ -36,6 +53,7 @@ function loanCard(l, approver) {
         if (approver) actions.push(`<button type="button" class="btn btn-ok btn-sm" data-loan="receive" data-id="${esc(l.id)}">Receive return…</button>`);
         else if (mine) actions.push(`<span class="muted small">Waiting for the team to check it back in</span>`);
     }
+    if (canSetDate) actions.push(`<button type="button" class="btn btn-sm" data-loan="setdate" data-id="${esc(l.id)}">Set return date</button>`);
     return `<article class="card ${overdue ? "overdue" : ""}">
         <div class="card-top">
             <div><div class="card-title">${esc(loanItemsText(l))}</div>
@@ -46,7 +64,7 @@ function loanCard(l, approver) {
         </div>
         <dl class="kv">
             <dt>Collect</dt><dd>${fmtDate(l.collectDate)}</dd>
-            <dt>Return</dt><dd>${fmtDate(l.returnDate)} <span class="muted">(${plural(nights, "day")})</span></dd>
+            <dt>Return</dt><dd>${loanTbc(l) ? `<b>TBC</b>${isLoanTbcLong(l) ? ` <span class="warn-text small">out over 30 days</span>` : ""}` : `${fmtDate(l.returnDate)} <span class="muted">(${plural(nights, "day")})</span>`}</dd>
             ${l.reason ? `<dt>Reason</dt><dd>${esc(l.reason)}</dd>` : ""}
             ${l.approveNote ? `<dt>Note</dt><dd>${esc(l.approveNote)}</dd>` : ""}
             ${l.rejectReason ? `<dt>Reason</dt><dd>${esc(l.rejectReason)}</dd>` : ""}
@@ -93,7 +111,7 @@ $("loans-container").addEventListener("click", e => {
     const l = loans.find(x => x.id === b.dataset.id);
     if (!l) return;
     ({ approve: openLoanApprove, reject: rejectLoan, cancel: cancelLoanRequest, collected: markCollected,
-        return: requestReturn, receive: openLoanReceive, void: voidLoan })[b.dataset.loan](l);
+        return: requestReturn, receive: openLoanReceive, void: voidLoan, setdate: setLoanReturnDate })[b.dataset.loan](l);
 });
 
 const loanHist = (l, status, note) => [...(l.history || []), { status, at: nowIso(), by: myEmail(), note: note || "" }];
@@ -116,7 +134,7 @@ function openLoanRequest() {
                 <span class="muted small">Change it if you're borrowing for someone else or a group, e.g. “Choir CCA - Wei Ling”.</span></div>
             <div class="form-grid">
                 <div class="field"><label for="ln-collect">Collection date *</label><input type="date" id="ln-collect" min="${earliest}" value="${earliest}"></div>
-                <div class="field"><label for="ln-return">Return date *</label><input type="date" id="ln-return" min="${earliest}" value="${addDays(notice + 2)}"></div>
+                <div class="field"><label for="ln-return">Return date *</label><input type="date" id="ln-return" min="${earliest}" value="${addDays(notice + 2)}">${tbcTickHtml("ln-tbc")}</div>
             </div>
             <p class="date-note" id="ln-dates"></p>
             <div class="field"><label for="ln-reason">Reason for loan <span class="hint">optional</span></label><textarea id="ln-reason" rows="2" placeholder="e.g. CCA rehearsal at LT1"></textarea></div>
@@ -147,6 +165,7 @@ function openLoanRequest() {
                 const c = root.querySelector("#ln-collect"), r = root.querySelector("#ln-return");
                 r.min = c.value || earliest;
                 const n = c.value && r.value ? daysBetween(c.value, r.value) : 0;
+                if (root.querySelector("#ln-tbc").checked) return void (root.querySelector("#ln-dates").textContent = `Earliest collection: ${fmtDate(earliest)} (${notice} days' notice). Return date to be confirmed - set it later on the loan.`);
                 root.querySelector("#ln-dates").textContent = `Earliest collection: ${fmtDate(earliest)} (${notice} days' notice).` + (c.value && r.value && n >= 0 ? ` Loan length: ${plural(n, "day")}.` : "");
             };
             search.addEventListener("combo:pick", e => addLine(e.detail.value, e.detail.data));
@@ -156,13 +175,15 @@ function openLoanRequest() {
             root.querySelector("#ln-lines").addEventListener("click", e => { const r = e.target.closest("[data-rm]"); if (r) { lines.splice(+r.dataset.rm, 1); renderLines(); } });
             root.querySelector("#ln-collect").addEventListener("change", dateNote);
             root.querySelector("#ln-return").addEventListener("change", dateNote);
+            bindTbcTick(root, "#ln-tbc", "#ln-return", dateNote);
             root.querySelector("#ln-form").addEventListener("submit", async e => {
                 e.preventDefault();
                 if (search.value.trim()) addLine(search.value);
-                const collect = root.querySelector("#ln-collect").value, ret = root.querySelector("#ln-return").value;
+                const tbc = root.querySelector("#ln-tbc").checked;
+                const collect = root.querySelector("#ln-collect").value, ret = tbc ? "" : root.querySelector("#ln-return").value;
                 if (!lines.length) return err("Add at least one piece of equipment.");
                 if (!collect || collect < earliest) return err(`Collection date must be ${fmtDate(earliest)} or later (${notice} days' notice).`);
-                if (!ret || ret < collect) return err("Return date must be on or after the collection date.");
+                if (!tbc && (!ret || ret < collect)) return err("Return date must be on or after the collection date, or tick Return date TBC.");
                 const id = store.newId("loans");
                 const reason = root.querySelector("#ln-reason").value.trim();
                 const who = root.querySelector("#ln-who").value.trim();
@@ -173,9 +194,9 @@ function openLoanRequest() {
                         { op: "set", col: "loans", id, data: {
                             requestedByUid: authUser.uid, requestedBy: myEmail(), requestedByName: myName(), requestedAt: nowIso(),
                             borrowerName: who, source: "request",
-                            items, collectDate: collect, returnDate: ret, reason, status: "requested", assigned: [],
+                            items, collectDate: collect, returnDate: ret, returnTbc: tbc, reason, status: "requested", assigned: [],
                             history: [{ status: "requested", at: nowIso(), by: myEmail(), note: "" }] } },
-                        makeLog("Loan requested", { label: items.map(i => `${i.qty}× ${i.name}`).join(", ") }, [], `For ${who} · ${collect} → ${ret}${reason ? ` · ${reason}` : ""}`, { ticketId: id })
+                        makeLog("Loan requested", { label: items.map(i => `${i.qty}× ${i.name}`).join(", ") }, [], `For ${who} · ${collect} → ${ret || "TBC"}${reason ? ` · ${reason}` : ""}`, { ticketId: id })
                     ]);
                     closeDynModal();
                     toast("Loan request sent");
@@ -204,7 +225,7 @@ function openLoanApprove(l) {
         title: "Approve loan", size: "lg", body: `
         <form id="la-form" class="form-stack" novalidate>
             <div class="ticket-summary"><div class="asset-cell"><b>${esc(l.requestedByName || l.requestedBy)}</b><span>${esc(l.requestedBy)}</span></div>
-                <div><span class="muted small">${fmtDate(l.collectDate)} → ${fmtDate(l.returnDate)}</span><p class="desc">${esc(l.reason || "No reason given")}</p></div></div>
+                <div><span class="muted small">${fmtDate(l.collectDate)} → ${loanReturnText(l)}</span><p class="desc">${esc(l.reason || "No reason given")}</p></div></div>
             <p class="muted small" style="margin:0">Assign the exact unit for each item. Details fill in automatically, and the units are set to <b>On Loan</b> when you approve.</p>
             ${linesHtml}
             <div class="field"><label for="la-note">Note to borrower <span class="hint">optional</span></label><input type="text" id="la-note" placeholder="e.g. Collect from the Mic Store after 2pm"></div>
@@ -243,7 +264,7 @@ function openLoanApprove(l) {
                 assigned.forEach(u => {
                     const a = assetById(u.assetId);
                     const m = wfAssetOps(a, { condition: "On Loan" }, "loans", l.id, "approved");
-                    ops.push(...m.ops, makeLog("Loan approved", a, m.changes, `${l.requestedByName || l.requestedBy} · return ${l.returnDate}`, { ticketId: l.id }));
+                    ops.push(...m.ops, makeLog("Loan approved", a, m.changes, `${l.requestedByName || l.requestedBy} · return ${loanReturnRaw(l)}`, { ticketId: l.id }));
                 });
                 const short = (l.items || []).reduce((s, x) => s + x.qty, 0) - assigned.length;
                 try {
@@ -281,11 +302,11 @@ async function cancelLoanRequest(l) {
 }
 
 async function markCollected(l) {
-    if (!(await uiConfirm({ title: "Mark as collected?", message: `Confirm you've picked up: ${loanItemsText(l)}.\nPlease return it by ${fmtDate(l.returnDate)}.`, confirmText: "I've collected it" }))) return;
+    if (!(await uiConfirm({ title: "Mark as collected?", message: `Confirm you've picked up: ${loanItemsText(l)}.\n${loanTbc(l) ? "Return date: TBC. Set it on the loan once you know." : `Please return it by ${fmtDate(l.returnDate)}.`}`, confirmText: "I've collected it" }))) return;
     try {
         await commitOps([
             { op: "update", col: "loans", id: l.id, data: { status: "collected", collectedAt: nowIso(), history: loanHist(l, "collected") } },
-            makeLog("Loan collected", { label: loanItemsText(l) }, [], `${myName()} · due back ${l.returnDate}`, { ticketId: l.id })
+            makeLog("Loan collected", { label: loanItemsText(l) }, [], `${myName()} · due back ${loanReturnRaw(l)}`, { ticketId: l.id })
         ]);
         toast("Marked as collected");
     } catch (er) { toast(friendlyError(er), "err"); }
@@ -305,6 +326,37 @@ async function requestReturn(l) {
     } catch (er) { toast(friendlyError(er), "err"); }
 }
 
+// ---------- Return date TBC -> a real date (manager or borrower) ----------
+function setLoanReturnDate(l) {
+    if (!loanTbc(l) || !(can("loans", "manage") || loanMine(l))) return;
+    const from = String(l.collectDate || today()).slice(0, 10);
+    showModal({
+        title: "Set return date", size: "sm", body: `
+        <form id="sd-form" class="form-stack" novalidate>
+            <p class="muted">${esc(loanItemsText(l))} · for <b>${esc(loanWho(l))}</b> · collected ${fmtDate(from)}</p>
+            <div class="field"><label for="sd-date">Return date *</label><input type="date" id="sd-date" min="${from}" value="${today() > from ? today() : from}"></div>
+            <p id="sd-error" class="error-msg hidden"></p>
+            <div class="form-actions"><button type="button" class="btn btn-ghost" data-close>Cancel</button><button type="submit" class="btn btn-primary">Save date</button></div>
+        </form>`,
+        onMount(root) {
+            root.querySelector("#sd-form").addEventListener("submit", async e => {
+                e.preventDefault();
+                const err = m => { const p = root.querySelector("#sd-error"); p.textContent = m; p.classList.remove("hidden"); };
+                const d = root.querySelector("#sd-date").value;
+                if (!d || d < from) return err("Pick a date on or after the collection date.");
+                try {
+                    await commitOps([
+                        { op: "update", col: "loans", id: l.id, data: { returnDate: d, returnTbc: false, history: loanHist(l, l.status, `Return date set: ${d}`) } },
+                        makeLog("Loan return date set", { label: loanItemsText(l) }, [{ field: "returnDate", from: "TBC", to: d }], loanWho(l), { ticketId: l.id })
+                    ]);
+                    closeDynModal();
+                    toast(`Return date set: ${fmtDate(d)}`);
+                } catch (er) { err(friendlyError(er)); }
+            });
+        }
+    });
+}
+
 // ---------- Receive: restore each unit ----------
 function openLoanReceive(l) {
     if (!can("loans", "manage")) return;
@@ -321,7 +373,7 @@ function openLoanReceive(l) {
         title: "Receive returned equipment", size: "lg", body: `
         <form id="rc-form" class="form-stack" novalidate>
             <div class="ticket-summary"><div class="asset-cell"><b>${esc(l.requestedByName || l.requestedBy)}</b><span>${esc(loanItemsText(l))}</span></div>
-                <div class="muted small">Due ${fmtDate(l.returnDate)}${isLoanOverdue(l) ? ` · <b class="warn-text">overdue</b>` : ""}${l.returnNote ? `<p class="desc">“${esc(l.returnNote)}”</p>` : ""}</div></div>
+                <div class="muted small">Due ${loanReturnText(l)}${isLoanOverdue(l) ? ` · <b class="warn-text">overdue</b>` : ""}${l.returnNote ? `<p class="desc">“${esc(l.returnNote)}”</p>` : ""}</div></div>
             ${units || `<p class="muted">No units were assigned.</p>`}
             <div class="field"><label for="rc-note">Check-in notes <span class="hint">optional</span></label><input type="text" id="rc-note" placeholder="e.g. All good, cables coiled"></div>
             <p id="rc-error" class="error-msg hidden"></p>
@@ -379,7 +431,7 @@ function openCatalogueLoan(a, onCancel) {
                 <input type="text" id="cl-who" data-combo="borrower" autocomplete="off" placeholder="Who is taking it? e.g. Wei Ling (Drama Club)"></div>
             <div class="form-grid">
                 <div class="field"><label for="cl-collect">Collection date *</label><input type="date" id="cl-collect" value="${today()}"></div>
-                <div class="field"><label for="cl-return">Return date *</label><input type="date" id="cl-return" min="${today()}" value="${addDays(3)}"></div>
+                <div class="field"><label for="cl-return">Return date *</label><input type="date" id="cl-return" min="${today()}" value="${addDays(3)}">${tbcTickHtml("cl-tbc")}</div>
             </div>
             <div class="field"><label for="cl-reason">Reason for loan <span class="hint">optional</span></label><textarea id="cl-reason" rows="2" placeholder="e.g. Production week"></textarea></div>
             <p id="cl-error" class="error-msg hidden"></p>
@@ -387,14 +439,16 @@ function openCatalogueLoan(a, onCancel) {
         </form>`,
         onMount(r) {
             r.querySelector("#cl-collect").addEventListener("change", e => { r.querySelector("#cl-return").min = e.target.value || today(); });
+            bindTbcTick(r, "#cl-tbc", "#cl-return");
             r.querySelector("#cl-form").addEventListener("submit", async e => {
                 e.preventDefault();
                 const err = m => { const p = r.querySelector("#cl-error"); p.textContent = m; p.classList.remove("hidden"); };
                 const who = r.querySelector("#cl-who").value.trim();
-                const collect = r.querySelector("#cl-collect").value, ret = r.querySelector("#cl-return").value;
+                const tbc = r.querySelector("#cl-tbc").checked;
+                const collect = r.querySelector("#cl-collect").value, ret = tbc ? "" : r.querySelector("#cl-return").value;
                 if (!who) return err("Enter the borrower's name.");
                 if (!collect) return err("Pick the collection date.");
-                if (!ret || ret < collect) return err("Return date must be on or after the collection date.");
+                if (!tbc && (!ret || ret < collect)) return err("Return date must be on or after the collection date, or tick Return date TBC.");
                 const reason = r.querySelector("#cl-reason").value.trim();
                 const id = store.newId("loans");
                 const now = nowIso();
@@ -407,11 +461,11 @@ function openCatalogueLoan(a, onCancel) {
                             source: "catalogue", status: "collected", borrowerName: who,
                             requestedByUid: authUser.uid, requestedBy: myEmail(), requestedByName: myName(), requestedAt: now,
                             items: [{ name: equipName(a), brand: a.brand || "", model: a.model || "", category: a.category || "", qty: isGeneral(a) ? units(a) : 1 }],
-                            collectDate: collect, returnDate: ret, reason, assigned: [unit],
+                            collectDate: collect, returnDate: ret, returnTbc: tbc, reason, assigned: [unit],
                             approvedBy: myEmail(), approvedAt: now, collectedAt: now,
                             history: [{ status: "collected", at: now, by: myEmail(), note: "Lent from the catalogue" }] } },
                         ...m.ops,
-                        makeLog("Loan created from catalogue", a, m.changes, `${who} · return ${ret}${reason ? ` · ${reason}` : ""}`, { ticketId: id })
+                        makeLog("Loan created from catalogue", a, m.changes, `${who} · return ${ret || "TBC"}${reason ? ` · ${reason}` : ""}`, { ticketId: id })
                     ]);
                     done = true;
                     closeDynModal();

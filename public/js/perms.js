@@ -51,7 +51,7 @@ const PERM_MODULES = [
         { key: "history", label: "See check history & download PDF", srv: true },
         { key: "deleteHistory", label: "Delete check history records", srv: true }
     ] },
-    { key: "maintenance", label: "Maintenance", features: [
+    { key: "maintenance", label: "Faults & Repairs", features: [
         { key: "view", label: "See the tab" },
         { key: "submit", label: "Submit fault requests", srv: true },
         { key: "viewAll", label: "See everyone's requests (not just own)", srv: true },
@@ -71,17 +71,17 @@ const PERM_MODULES = [
         { key: "signOut", label: "Sign gear out for a show", srv: true },
         { key: "viewAll", label: "See everyone's shows", srv: true }
     ] },
-    { key: "avail", label: "Availability", features: [
+    { key: "avail", label: "My Availability", features: [
         { key: "view", label: "See the tab" },
         { key: "edit", label: "Mark own available days", srv: true, hint: "People with this are listed in the roster sheet" },
         { key: "viewAll", label: "See everyone's availability", srv: true },
         { key: "book", label: "Book people (soft / confirmed)", srv: true, hint: "Also lets them see everyone" }
     ] },
-    { key: "events", label: "Calendar", features: [
-        { key: "view", label: "See the tab", hint: "Untick to hide the Calendar tab. Ticked alone: only shows they're booked on" },
+    { key: "events", label: "Show Calendar", features: [
+        { key: "view", label: "See the tab", hint: "Untick to hide the Show Calendar tab. Ticked alone: only shows they're booked on" },
         { key: "viewAll", label: "See every show & maintenance call", srv: true }
     ] },
-    { key: "logs", label: "Log History", features: [
+    { key: "logs", label: "Activity Log", features: [
         { key: "view", label: "See the tab", srv: true },
         { key: "pdf", label: "Download Log PDF" }
     ] }

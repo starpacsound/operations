@@ -105,7 +105,7 @@ function accessPaneHtml() {
     const title = src.tpl ? `${esc(src.role)} template` : esc(personName(u));
     const sub = src.tpl ? `Copied onto people when they're approved as ${esc(src.role)} or moved to this role. Use “Apply” to push changes to existing ${esc(src.role)}s.`
         : `${esc(loginLabel(u.email, u.displayName))} · Casual ID <b class="mono">${esc(u.casualId || "—")}</b>${dupCasual(u) ? ` <span class="custom-badge">duplicate</span>` : ""}
-            <button type="button" class="link-btn" data-acc-act="casual">Edit</button>${(crewRoleMap[u.id] || []).length ? ` · Crew roles <b>${(crewRoleMap[u.id]).map(esc).join(" ")}</b> <span class="muted">(ticked in Availability › Team)</span>` : ""} · <span title="Refreshed about once a day, to keep database reads low">last seen ${u.lastSeen ? fmtDateTime(u.lastSeen) : "never"}</span>`;
+            <button type="button" class="link-btn" data-acc-act="casual">Edit</button>${(crewRoleMap[u.id] || []).length ? ` · Crew roles <b>${(crewRoleMap[u.id]).map(esc).join(" ")}</b> <span class="muted">(ticked in My Availability › Team)</span>` : ""} · <span title="Refreshed about once a day, to keep database reads low">last seen ${u.lastSeen ? fmtDateTime(u.lastSeen) : "never"}</span>`;
 
     const head = `<div class="acc-head">
         <div><h3>${title}</h3><p class="muted small">${sub}</p></div>
@@ -471,9 +471,9 @@ function renderBranding() {
         </form>
         <div>
             <p class="preview-label">Sidebar</p>
-            <div class="preview-side">${mark()}<div class="brand-text"><span class="brand-name-text">${esc(brandDraft.appName || "Untitled")}</span><span class="brand-sub">Asset System</span></div></div>
+            <div class="preview-side">${mark()}<div class="brand-text"><span class="brand-name-text">${esc(brandDraft.appName || "Untitled")}</span><span class="brand-sub">Gear, Shows &amp; Crew</span></div></div>
             <p class="preview-label">Sign-in screen</p>
-            <div class="preview-login">${mark("lg")}<b>${esc(brandDraft.appName || "Untitled")}</b><span class="muted small">Inventory &amp; Asset Control</span></div>
+            <div class="preview-login">${mark("lg")}<b>${esc(brandDraft.appName || "Untitled")}</b><span class="muted small">Gear, Shows &amp; Crew</span></div>
         </div></div>
         ${venuesPanelHtml()}
         ${conditionsPanelHtml()}

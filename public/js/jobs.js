@@ -299,12 +299,16 @@ async function saveDay(row, day, state, draft, currentJobs) {
     } else if (draft && draft.job) {
         const j = draft.job;
         ops.push({ op: "update", col: "jobs", id: j.id, data: { crew: [...(j.crew || []).filter(c => c.uid !== row.uid), crewEntry(draft.role)], crewUids: uniq([...(j.crewUids || []), row.uid]), updatedBy: myEmail(), updatedAt: nowIso() } });
+        ops.push(...jobShowCrewOps(j.id, uniq([...(j.crewUids || []), row.uid])));
         ops.push(...listAddOps({ roles: [draft.role] }));
         jobsAfter.push(j);
     }
     if (!state) {
         // Clearing: take them off every job that day.
-        currentJobs.forEach(j => ops.push({ op: "update", col: "jobs", id: j.id, data: { crew: (j.crew || []).filter(c => c.uid !== row.uid), crewUids: (j.crewUids || []).filter(u => u !== row.uid), updatedBy: myEmail(), updatedAt: nowIso() } }));
+        currentJobs.forEach(j => {
+            ops.push({ op: "update", col: "jobs", id: j.id, data: { crew: (j.crew || []).filter(c => c.uid !== row.uid), crewUids: (j.crewUids || []).filter(u => u !== row.uid), updatedBy: myEmail(), updatedAt: nowIso() } });
+            ops.push(...jobShowCrewOps(j.id, (j.crewUids || []).filter(u => u !== row.uid)));
+        });
         jobsAfter = [];
     }
     ops.push(dayStateOp(row, day, state));
@@ -344,6 +348,7 @@ async function removeFromJob(j, uid, name) {
     if (!(await uiConfirm({ title: `Take ${name} off ${j.title}?`, confirmText: "Remove", danger: true,
         message: others.length ? `They stay booked for ${others.map(x => x.title).join(", ")} that day.` : `${fmtDay(m, day)} goes back to "available" for them.` }))) return false;
     const ops = [{ op: "update", col: "jobs", id: j.id, data: { crew: (j.crew || []).filter(c => c.uid !== uid), crewUids: (j.crewUids || []).filter(u => u !== uid), updatedBy: myEmail(), updatedAt: nowIso() } }];
+    ops.push(...jobShowCrewOps(j.id, (j.crewUids || []).filter(u => u !== uid)));
     if (!others.length && ["S", "C"].includes(dayState(row.doc, day))) {
         const saved = availMonth; availMonth = m; ops.push(dayStateOp(row, day, "")); availMonth = saved;
     }

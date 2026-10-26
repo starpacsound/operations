@@ -259,6 +259,12 @@ function seedDemo() {
             assigned: [unit("demo-27")], approvedBy: "coadmin@showbase.com", approvedAt: day(2), collectedAt: day(2),
             history: [{ status: "collected", at: day(2), by: "coadmin@showbase.com", note: "Lent from the catalogue" }] }
     };
+    // v5.3: a loan with no return date yet, out for 40 days (listed on Today for loan managers)
+    loans["loan-5"] = { requestedByUid: "u-coadmin", requestedBy: "coadmin@showbase.com", requestedByName: "Farah", borrowerName: "Hall 2 band room", source: "request",
+        requestedAt: day(42), items: [{ name: "Gaffer tape", brand: "", model: "", category: "Consumables", qty: 4 }],
+        collectDate: day(40).slice(0, 10), returnDate: "", returnTbc: true, reason: "Long-term loan", status: "collected", assigned: [],
+        approvedBy: "coadmin@showbase.com", approvedAt: day(41), collectedAt: day(40),
+        history: [{ status: "collected", at: day(40), by: "coadmin@showbase.com" }] };
     inventory["demo-12"].condition = "On Loan";
     inventory["demo-27"].condition = "On Loan";
 
@@ -394,7 +400,7 @@ function createDemoStore() {
         let out = Object.entries(data[col] || {}).map(([id, d]) => ({ id, ...clone(d) }));
         (q.where || []).forEach(([f, op, v]) => {
             out = out.filter(r => op === "in" ? v.includes(r[f]) : op === "==" ? r[f] === v : op === "array-contains" ? (r[f] || []).includes(v)
-                : op === ">" ? r[f] !== undefined && r[f] > v : op === ">=" ? r[f] !== undefined && r[f] >= v : op === "<" ? r[f] !== undefined && r[f] < v : true);
+                : op === ">" ? r[f] !== undefined && r[f] > v : op === ">=" ? r[f] !== undefined && r[f] >= v : op === "<" ? r[f] !== undefined && r[f] < v : op === "<=" ? r[f] !== undefined && r[f] <= v : true);
         });
         if (q.orderBy) {
             const [f, dir] = q.orderBy;

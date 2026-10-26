@@ -686,3 +686,33 @@ input[data-combo]:not([readonly]):not(:disabled) { background-image: linear-grad
 .search-hint { margin-bottom: .75rem; }
 .cat-more { display: flex; align-items: center; gap: .6rem; padding: .5rem .2rem .2rem; }
 .group-more { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem; padding: .9rem .2rem; }
+
+/* ---------- v5.3: Today page, shared show gear ---------- */
+.today-card { padding: 1rem 1.1rem; display: flex; flex-direction: column; gap: .85rem; margin-bottom: 1.2rem; border-left: 4px solid var(--accent); }
+.today-card.empty { border-left-color: var(--border-soft); }
+.today-h { margin: 0; font-size: 1.05rem; }
+.today-card-top { display: flex; justify-content: space-between; align-items: flex-start; gap: .8rem; flex-wrap: wrap; }
+.today-show { margin: .15rem 0 0; font-size: 1.35rem; }
+.today-crew { flex-direction: row; flex-wrap: wrap; gap: .4rem .9rem; margin-top: .35rem; }
+.today-gear { display: flex; align-items: center; justify-content: space-between; gap: .8rem; flex-wrap: wrap; padding-top: .75rem; border-top: 1px solid var(--border-soft); }
+.today-later { margin: 0; }
+.today-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: .8rem; margin-bottom: 1.2rem; }
+.today-tile { padding: .85rem .95rem; display: flex; flex-direction: column; gap: .6rem; align-items: flex-start; }
+.today-tile-h { display: flex; justify-content: space-between; align-items: center; gap: .6rem; width: 100%; }
+.today-count { font: 700 1.25rem var(--mono, monospace); color: var(--accent); }
+.today-tile.t-warn { border-left: 4px solid var(--warn); }
+.today-tile.t-warn .today-count { color: var(--warn); }
+.today-tile.t-err { border-left: 4px solid var(--bad, var(--err)); }
+.today-tile.t-err .today-count { color: var(--bad, var(--err)); }
+.today-list { list-style: none; margin: 0; padding: 0; width: 100%; display: flex; flex-direction: column; gap: .3rem; font-size: var(--fs-sm); }
+.today-list li { display: flex; justify-content: space-between; gap: .6rem; }
+.today-install { padding: .75rem .95rem; }
+.today-install summary { cursor: pointer; }
+.today-install ul { margin: .6rem 0; padding-left: 1.1rem; display: flex; flex-direction: column; gap: .3rem; }
+.shared-tag { font-size: .72rem; padding: .05rem .4rem; border-radius: 999px; background: var(--accent-soft); color: var(--text); }
+.show-shared { margin: .2rem 0 .5rem; }
+.gear-flag { color: var(--warn); font-weight: 700; }
+.ev-gear { display: flex; flex-direction: column; gap: .4rem; align-items: flex-start; }
+.ev-gear p { margin: 0; }
+.ev-gear .warn-tag, .ev-gear .ok-tag, .today-gear .warn-tag, .today-gear .ok-tag { font-size: var(--fs-sm); }
+.tbc-tick { margin-top: .35rem; font-size: var(--fs-sm); }

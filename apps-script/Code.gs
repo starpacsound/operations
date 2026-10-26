@@ -352,6 +352,7 @@ function toRow_(def, data) {
     if (c === 'changes') return cell_(formatChanges_(data.changes));
     if (c === 'items' || c === 'assigned') return cell_(formatList_(data[c]));
     if (c === 'current' || c === 'proposed') return cell_(formatMap_(data[c]));
+    if (c === 'returnDate' && data.returnTbc && !data.returnDate) return 'TBC';   // loan with no return date yet (v5.3)
     if (data.summary && ['total', 'checked', 'discrepancies'].indexOf(c) >= 0) return cell_(data.summary[c]);
     if (data.summary && c === 'notFound') return cell_((data.summary.total || 0) - (data.summary.checked || 0));
     if (data.summary && c === 'notFoundItems') return cell_((data.summary.items || []).filter(function (i) { return !i.checked; })

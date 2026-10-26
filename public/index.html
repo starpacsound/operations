@@ -3,7 +3,15 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Showbase · Asset System</title>
+    <title>Showbase · Gear, Shows &amp; Crew</title>
+    <!-- Install as a phone app (v5.3): manifest + service worker (sw.js) -->
+    <link rel="manifest" href="manifest.webmanifest">
+    <meta name="theme-color" content="#2a2f37">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Showbase">
+    <link id="apple-icon" rel="apple-touch-icon" href="icons/apple-touch-icon.png">
     <link id="favicon" rel="icon" href="data:,">
     <script>try { var t = localStorage.getItem("sb_theme"); if (t === "light" || t === "dark") document.documentElement.setAttribute("data-theme", t); } catch (e) {}</script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -25,7 +33,7 @@
             <div class="auth-brand">
                 <div class="brand-mark lg"><img class="brand-logo hidden" alt=""><span class="brand-initials">SB</span></div>
                 <h2 class="brand-name-text">Showbase</h2>
-                <p class="muted">Inventory &amp; Asset Control</p>
+                <p class="muted brand-tagline">Gear, Shows &amp; Crew</p>
             </div>
 
             <div id="demo-box" class="demo-box hidden">
@@ -124,10 +132,13 @@
         <aside class="sidebar" id="sidebar">
             <div class="sidebar-brand">
                 <div class="brand-mark"><img class="brand-logo hidden" alt=""><span class="brand-initials">SB</span></div>
-                <div class="brand-text"><span class="brand-name-text">Showbase</span><span class="brand-sub">Asset System</span></div>
+                <div class="brand-text"><span class="brand-name-text">Showbase</span><span class="brand-sub">Gear, Shows &amp; Crew</span></div>
             </div>
 
             <nav class="nav" id="nav">
+                <div class="nav-group" data-group="today">
+                    <a href="#today" class="nav-item" data-view="today"><span class="ni">☀</span>Today</a>
+                </div>
                 <div class="nav-group" data-group="inventory">
                     <div class="nav-heading">Inventory</div>
                     <a href="#catalogue" class="nav-item" data-view="catalogue"><span class="ni">▦</span>Asset Catalogue</a>
@@ -136,20 +147,20 @@
                 </div>
                 <div class="nav-group" data-group="operations">
                     <div class="nav-heading">Operations</div>
-                    <a href="#maintenance" class="nav-item" data-view="maintenance"><span class="ni">⚙</span>Maintenance<span class="nav-badge hidden" id="badge-maintenance"></span></a>
+                    <a href="#maintenance" class="nav-item" data-view="maintenance"><span class="ni">⚙</span>Faults &amp; Repairs<span class="nav-badge hidden" id="badge-maintenance"></span></a>
                     <a href="#loans" class="nav-item" data-view="loans"><span class="ni">⇄</span>Equipment Loans<span class="nav-badge hidden" id="badge-loans"></span></a>
                     <a href="#shows" class="nav-item" data-view="shows"><span class="ni">♪</span>Show Sign-Out<span class="nav-badge hidden" id="badge-shows"></span></a>
                 </div>
                 <div class="nav-group" data-group="events">
-                    <div class="nav-heading">Events</div>
-                    <a href="#availability" class="nav-item" data-view="availability"><span class="ni">▦</span>Availability<span class="nav-badge hidden" id="badge-avail"></span></a>
-                    <a href="#events" class="nav-item" data-view="events"><span class="ni">◷</span>Calendar</a>
+                    <div class="nav-heading">Crew</div>
+                    <a href="#availability" class="nav-item" data-view="availability"><span class="ni">▦</span>My Availability<span class="nav-badge hidden" id="badge-avail"></span></a>
+                    <a href="#events" class="nav-item" data-view="events"><span class="ni">◷</span>Show Calendar</a>
                 </div>
                 <div class="nav-group" data-group="admin">
                     <div class="nav-heading">Admin</div>
-                    <a href="#logs" class="nav-item" data-view="logs"><span class="ni">≡</span>Log History</a>
-                    <a href="#users" class="nav-item" data-view="users"><span class="ni">⚿</span>Users &amp; Permissions<span class="nav-badge hidden" id="badge-users"></span></a>
-                    <a href="#branding" class="nav-item" data-view="branding"><span class="ni">◈</span>Branding</a>
+                    <a href="#logs" class="nav-item" data-view="logs"><span class="ni">≡</span>Activity Log</a>
+                    <a href="#users" class="nav-item" data-view="users"><span class="ni">⚿</span>People &amp; Access<span class="nav-badge hidden" id="badge-users"></span></a>
+                    <a href="#branding" class="nav-item" data-view="branding"><span class="ni">◈</span>Settings</a>
                 </div>
             </nav>
 
@@ -170,6 +181,12 @@
 
         <main class="main" id="main">
             <div id="quota-banner" class="quota-banner hidden" role="alert"></div>
+            <!-- ---------- Today ---------- -->
+            <section id="view-today" class="view hidden">
+                <div class="view-head"><div><h1>Today</h1><p class="view-sub">Your next show and what needs you now.</p></div></div>
+                <div id="today-container"></div>
+            </section>
+
             <!-- ---------- Asset Catalogue ---------- -->
             <section id="view-catalogue" class="view">
                 <div class="view-head">
@@ -261,10 +278,10 @@
                 <div id="check-history" class="hidden"></div>
             </section>
 
-            <!-- ---------- Maintenance ---------- -->
+            <!-- ---------- Faults & Repairs (maintenance) ---------- -->
             <section id="view-maintenance" class="view hidden">
                 <div class="view-head">
-                    <div><h1>Maintenance</h1><p class="view-sub">Fault reports flow from Requests → Confirmed Faulty → Repairing → back to the catalogue.</p></div>
+                    <div><h1>Faults &amp; Repairs</h1><p class="view-sub">Fault reports flow from Requests → Confirmed Faulty → Repairing → back to the catalogue.</p></div>
                     <div class="toolbar"><button type="button" class="btn btn-primary maint-submit-only" onclick="openLogMaintenance()">+ Log Maintenance</button></div>
                 </div>
                 <div id="maint-sections"></div>
@@ -313,7 +330,7 @@
             <!-- ---------- Log history ---------- -->
             <section id="view-logs" class="view hidden">
                 <div class="view-head">
-                    <div><h1>Log History</h1><p class="view-sub">Every change to assets, workflows and access.</p></div>
+                    <div><h1>Activity Log</h1><p class="view-sub">Every change to assets, workflows and access.</p></div>
                     <div class="toolbar">
                         <button type="button" class="btn logpdf-only" onclick="openLogPdf()">Download PDF</button>
                         <button type="button" class="btn btn-danger primary-only" onclick="resetLog()">Reset Log</button>
@@ -335,10 +352,10 @@
                 <p id="log-footnote" class="muted small"></p>
             </section>
 
-            <!-- ---------- Users & permissions ---------- -->
+            <!-- ---------- People & Access ---------- -->
             <section id="view-users" class="view hidden">
                 <div class="view-head">
-                    <div><h1>Users &amp; Permissions</h1><p class="view-sub">Approve sign-ups and control exactly what each person can see and do.</p></div>
+                    <div><h1>People &amp; Access</h1><p class="view-sub">Approve sign-ups and control exactly what each person can see and do.</p></div>
                 </div>
                 <h2 class="section-title">Pending sign-ups</h2>
                 <div class="panel"><div class="table-scroll">
@@ -361,10 +378,10 @@
                 </div></div>
             </section>
 
-            <!-- ---------- Branding ---------- -->
+            <!-- ---------- Settings (branding, venues, conditions, bundles) ---------- -->
             <section id="view-branding" class="view hidden">
                 <div class="view-head">
-                    <div><h1>Branding</h1><p class="view-sub">Name and logo shown in the sidebar, sign-in screen, browser tab and PDF exports.</p></div>
+                    <div><h1>Settings</h1><p class="view-sub">Name and logo (sidebar, sign-in screen, browser tab, PDF exports), venues, asset conditions and inventory bundles.</p></div>
                 </div>
                 <div id="branding-form"></div>
             </section>
@@ -372,14 +389,14 @@
             <!-- ---------- Availability & bookings ---------- -->
             <section id="view-availability" class="view hidden">
                 <div class="view-head">
-                    <div><h1>Availability</h1><p class="view-sub">Mark the days you're free. Bookings from Admins show up here - orange is soft booked, red is confirmed.</p></div>
+                    <div><h1>My Availability</h1><p class="view-sub">Mark the days you're free. Bookings from Admins show up here - orange is soft booked, red is confirmed.</p></div>
                 </div>
                 <div id="avail-container"></div>
             </section>
 
             <!-- ---------- Calendar ---------- -->
             <section id="view-events" class="view hidden">
-                <div class="view-head"><div><h1>Calendar</h1><p class="view-sub">Shows and maintenance calls, by month. Click one for details and crew.</p></div></div>
+                <div class="view-head"><div><h1>Show Calendar</h1><p class="view-sub">Shows and maintenance calls, by month. Click one for details and crew.</p></div></div>
                 <div id="events-container"></div>
             </section>
 
@@ -517,6 +534,7 @@
     <script src="js/availability.js"></script>
     <script src="js/jobs.js"></script>
     <script src="js/events.js"></script>
+    <script src="js/today.js"></script>
     <script src="js/pdf.js"></script>
     <script src="js/logs.js"></script>
     <script src="js/admin.js"></script>

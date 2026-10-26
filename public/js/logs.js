@@ -96,7 +96,7 @@ function openLogPdf() {
     const f = logFilters();
     const filtered = f.q || f.act !== "ALL" || f.from || f.to;
     showModal({
-        title: "Download Log History (PDF)", size: "sm", body: `
+        title: "Download Activity Log (PDF)", size: "sm", body: `
         <form id="pdf-form" class="form-stack" novalidate>
             <div class="field"><label>What to include</label>
                 <label class="radio-row"><input type="radio" name="pdf-scope" value="filtered" ${filtered ? "checked" : "disabled"}> Current filters${f.from || f.to ? " (reads only the chosen dates)" : ""}</label>
@@ -146,7 +146,7 @@ function logPdfQuery(f) {
 async function buildLogPdf(rows, opts) {
     const f = opts.filters;
     const filterText = f ? [f.q && `search "${f.q}"`, f.act !== "ALL" && `action: ${f.act}`, f.from && `from ${f.from}`, f.to && `to ${f.to}`].filter(Boolean).join(", ") : "none (full history)";
-    const r = await newReport({ title: "Log History report", meta: [
+    const r = await newReport({ title: "Activity Log report", meta: [
         `${rows.length} entries | ${pdfDate(rows[rows.length - 1].at)} - ${pdfDate(rows[0].at)}`, `Filters: ${filterText}` ] });
     r.table({
         head: [["When", "User", "Action", "Asset", ...(opts.changes ? ["Changes"] : []), "Note"]],
@@ -167,7 +167,7 @@ async function buildLogPdf(rows, opts) {
 
 async function resetLog() {
     if (!isPrimary()) return;
-    const typed = await uiConfirm({ title: "Reset Log History?", danger: true, confirmText: "Delete all log entries",
+    const typed = await uiConfirm({ title: "Reset Activity Log?", danger: true, confirmText: "Delete all log entries",
         message: "This permanently deletes ALL log history from the app. The Google Sheet backup keeps its copy.\nDownload the PDF first if you need it.",
         input: { label: "Type RESET to confirm", match: "RESET", required: true } });
     if (!typed) return;

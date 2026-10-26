@@ -27,6 +27,20 @@
           "order": "ASCENDING"
         }
       ]
+    },
+    {
+      "collectionGroup": "shows",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "crewUids",
+          "arrayConfig": "CONTAINS"
+        },
+        {
+          "fieldPath": "showDate",
+          "order": "ASCENDING"
+        }
+      ]
     }
   ],
   "fieldOverrides": [

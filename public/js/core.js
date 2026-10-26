@@ -98,7 +98,7 @@ let invLoaded = false;
 let bundlesLegacy = false;   // true until an Admin builds the inventory bundles (Branding › Inventory bundles)
 let invError = false;
 let editMode = false;
-let currentView = "catalogue";
+let currentView = "today";
 
 // ---------- Helpers ----------
 const $ = id => document.getElementById(id);

@@ -48,13 +48,28 @@ function renderEvents() {
     const legend = venueLegend(list);
     host.innerHTML = `<div class="ev-top">${eventsNav()}${modeTabs}${legend}</div>
         ${eventsMode === "calendar" ? evCalendarHtml(m, list) : evListHtml(list)}
-        ${!list.length ? `<div class="empty-state">${evSeeAll() ? "No shows or maintenance calls this month yet. Add them from Availability › Shows & manpower." : "You're not booked on anything this month."}</div>` : ""}`;
+        ${!list.length ? `<div class="empty-state">${evSeeAll() ? "No shows or maintenance calls this month yet. Add them from My Availability › Shows & manpower." : "You're not booked on anything this month."}</div>` : ""}`;
+}
+
+// The job's shared gear list (shows.js): missing items, or still out after the show, get a ⚠ on the calendar.
+const gearAlert = j => { const g = jobShowOf(j); return !!g && (g.missingCount > 0 || (g.status === "out" && j.date < today())); };
+function gearSummaryHtml(j) {
+    const g = jobShowOf(j), canGear = isAdmin() || onCrew(j);
+    if (!g && !canGear) return "";
+    const pcs = g ? (g.items || []).reduce((n, i) => n + (+i.qty || 0), 0) : 0;
+    const missing = g ? (g.items || []).filter(i => g.status === "in" && !i.accounted) : [];
+    const line = !g ? `<p class="muted small">No gear signed out for this yet.</p>`
+        : g.status === "out" ? `<p class="${j.date < today() ? "warn-tag" : ""}">${j.date < today() ? "⚠ Still signed out after the show" : "Signed out"} · ${plural((g.items || []).length, "line")}, ${pcs} pcs</p>`
+        : missing.length ? `<p class="warn-tag">⚠ Signed in with ${plural(missing.length, "missing item")}: ${esc(missing.map(m => `${m.qty}× ${m.name}`).join(", "))}</p>`
+        : `<p class="ok-tag">✓ Signed in · everything accounted for</p>`;
+    return `<div class="ev-gear"><h4 class="dm-h">Show gear</h4>${line}
+        ${canGear || g ? `<button type="button" class="btn btn-sm ${g ? "" : "btn-primary"}" data-ev-gear="${esc(j.id)}">${g ? "Open gear list" : "Sign out gear"}</button>` : ""}</div>`;
 }
 
 const evChip = j => {
     const st = jobState(j);
     return `<button type="button" class="ev-chip kind-${j.kind} ${st ? "st-" + st : ""}"${venueStyle(j)} data-ev-open="${esc(j.id)}" title="${esc(j.title)} · ${esc(fmtRange(j))}${j.venue ? " · " + esc(j.venue) : ""}${st === "S" ? " · soft booked" : ""}">
-        <span class="t">${esc(fmtTime(j.start))}</span> ${esc(j.title)}</button>`;
+        <span class="t">${esc(fmtTime(j.start))}</span> ${gearAlert(j) ? `<span class="gear-flag" title="Show gear: missing items or not signed in">⚠</span> ` : ""}${esc(j.title)}</button>`;
 };
 function evCalendarHtml(m, list) {
     const n = daysInMonth(m), first = (dayDate(m, "01").getDay() + 6) % 7;
@@ -77,7 +92,7 @@ function evListHtml(list) {
         <div class="ev-day-h">${esc(fmtDay(date.slice(0, 7), date.slice(8)))}</div>
         ${byDate[date].map(j => `<button type="button" class="ev-row kind-${j.kind}"${venueStyle(j)} data-ev-open="${esc(j.id)}">
             <span class="ev-time">${esc(fmtRange(j))}</span>
-            <span class="ev-title"><b>${esc(j.title)}</b><span class="u-sub">${venueTag(j.venue)}${j.kind === "maint" ? " · maintenance call" : ""}</span></span>
+            <span class="ev-title"><b>${gearAlert(j) ? `<span class="gear-flag" title="Show gear: missing items or not signed in">⚠</span> ` : ""}${esc(j.title)}</b><span class="u-sub">${venueTag(j.venue)}${j.kind === "maint" ? " · maintenance call" : ""}</span></span>
             <span class="mp-chips">${canSeeAll() ? fillChips(j) : onCrew(j) ? `<span class="chip st-${jobState(j) || "A"}">${jobState(j) === "C" ? "Confirmed" : "Soft"} · you: ${esc(crewRoleOf(j, authUser.uid))}</span>` : `<span class="muted small">${(j.crew || []).length} crew</span>`}</span>
         </button>`).join("")}</div>`).join("")}</div>`;
 }
@@ -97,6 +112,8 @@ function openEventModal(j) {
             ${j.notes ? `<p class="muted">${esc(j.notes)}</p>` : ""}
             <div><h4 class="dm-h">Crew (${crew.length})</h4>
                 ${crew.length ? `<ul class="ev-crew">${crew.map(c => `<li><b>${esc(c.name)}</b> <span class="role-pill">${esc(c.role)}</span>${canSeeAll() ? ` <span class="chip cs-${crewStatus(j, c.uid)}">${CREW_STATUS[crewStatus(j, c.uid)]}</span>` : c.uid === authUser.uid ? ` <span class="muted small">(you)</span>` : ""}</li>`).join("")}</ul>` : `<p class="muted small">Nobody booked yet.</p>`}</div>
+            ${j.venue ? `<a class="link-btn" href="${mapsUrl(j.venue)}" target="_blank" rel="noopener">📍 Open ${esc(j.venue)} in Google Maps</a>` : ""}
+            ${gearSummaryHtml(j)}
             <div class="form-actions">
                 ${canBook() ? `<button type="button" class="btn" data-ev-edit="${esc(j.id)}">Edit details</button>` : ""}
                 <button type="button" class="btn btn-primary" data-close>Close</button>
@@ -106,6 +123,8 @@ function openEventModal(j) {
             root.addEventListener("click", e => {
                 const ed = e.target.closest("[data-ev-edit]");
                 if (ed) { closeDynModal(); openJobEditor(allKnownJobs().find(x => x.id === ed.dataset.evEdit)); }
+                const gr = e.target.closest("[data-ev-gear]");
+                if (gr) { closeDynModal(); openJobGear(allKnownJobs().find(x => x.id === gr.dataset.evGear)); }
             });
         }
     });
