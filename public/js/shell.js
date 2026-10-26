@@ -8,6 +8,7 @@ let appRunning = false;
 let permKey = "";
 let pendingRender = false;
 let authTab = "signin";
+let verifySynced = false;
 
 const VIEWS = {
     today: { always: true, render: renderToday },
@@ -240,6 +241,14 @@ function onProfile(p) {
     if (needsVerify() && p.status !== "rejected" && p.status !== "disabled") {
         stopData(); appRunning = false;
         return showVerifyGate(p);
+    }
+    // Verified in Firebase but the profile still says not verified (e.g. they clicked the email link,
+    // then signed in again instead of pressing "I've clicked the link"): record it so Admins can approve.
+    if (authUser && authUser.emailVerified && !p.emailVerified && !isUsernameEmail(authUser.email) && !verifySynced) {
+        verifySynced = true;
+        store.refreshVerification()
+            .then(ok => ok && store.commit([{ op: "update", col: "users", id: authUser.uid, data: { emailVerified: true, emailVerifiedAt: nowIso() } }]))
+            .catch(() => { verifySynced = false; });
     }
     if (p.status === "pending") {
         stopData(); appRunning = false;
