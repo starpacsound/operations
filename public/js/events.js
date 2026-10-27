@@ -46,7 +46,7 @@ function renderEvents() {
         <button type="button" class="seg-tab ${eventsMode === "calendar" ? "active" : ""}" data-ev-mode="calendar">Calendar</button>
         <button type="button" class="seg-tab ${eventsMode === "list" ? "active" : ""}" data-ev-mode="list">List</button></div>`;
     const legend = venueLegend(list);
-    host.innerHTML = `<div class="ev-top">${eventsNav()}${modeTabs}${legend}</div>
+    host.innerHTML = `<div class="ev-top stick">${eventsNav()}${modeTabs}${legend}</div>
         ${eventsMode === "calendar" ? evCalendarHtml(m, list) : evListHtml(list)}
         ${!list.length ? `<div class="empty-state">${evSeeAll() ? "No shows or maintenance calls this month yet. Add them from My Availability › Shows & manpower." : "You're not booked on anything this month."}</div>` : ""}`;
 }

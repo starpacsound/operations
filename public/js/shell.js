@@ -178,6 +178,7 @@ function teardown() {
     if (profileUnsub) { profileUnsub(); profileUnsub = null; }
     profile = null; inventory = []; tickets = []; loans = []; shows = []; availMine = []; reminders = []; askToastShown = false; availMonth = ""; availTab = "mine"; crewRoleMap = {}; myJobs = []; showOpen.clear(); stopAvailGrid(); stopMonthJobs(); settings.rosterLists = null; settings.availability = null; checks = {}; audits = []; discrepancies = []; logs = []; users = [];
     settings.roles = null; settings.venues = null; settings.conditions = null; applyConditions(null); selectedRound = null;
+    Object.keys(viewScroll).forEach(k => delete viewScroll[k]);
     appRunning = false; permKey = ""; invLoaded = false; editMode = false; brandDraft = null;
     openDrawers.clear();
     closeModal(); closeImportModal(); closeDynModal();
@@ -497,8 +498,25 @@ function renderAll() { renderNavBadges(); requestRender(true); }
 // =====================================================================
 // NAVIGATION
 // =====================================================================
+// v5.6: each page remembers where it was scrolled to for 10 minutes (the page itself, not a refresh).
+const SCROLL_KEEP_MS = 10 * 60 * 1000;
+const viewScroll = {};     // view -> { y, at }
+const phoneLayout = () => !!(window.matchMedia && window.matchMedia("(max-width: 900px)").matches);
+const getScrollY = () => phoneLayout() ? window.scrollY : $("main").scrollTop;
+const setScrollY = y => { if (phoneLayout()) window.scrollTo(0, y); else $("main").scrollTop = y; };
+// Frozen bars sit under the phone top bar; the page's own bar height lets a second bar (search row) stack below it.
+function syncStick() {
+    const root = document.documentElement, tb = document.querySelector(".topbar");
+    root.style.setProperty("--stick-top", phoneLayout() && tb ? tb.offsetHeight + "px" : "0px");
+    const v = document.querySelector(".view:not(.hidden)"), st = v && v.querySelector(".stick");
+    root.style.setProperty("--stick-h", st ? st.offsetHeight + "px" : "0px");
+}
+window.addEventListener("resize", syncStick);
+if (window.ResizeObserver) { try { const ro = new ResizeObserver(syncStick); document.querySelectorAll(".view .stick").forEach(el => ro.observe(el)); } catch (e) { /* ignore */ } }
+
 function switchView(view, silent) {
     if (!canOpenView(view)) view = firstView();
+    if (appRunning && currentView && currentView !== view && $("main")) viewScroll[currentView] = { y: getScrollY(), at: Date.now() };
     // Big trees are redrawn on entry anyway; don't keep thousands of hidden rows in the page.
     if (currentView !== view) ["rack", "check"].forEach(v => { if (v === currentView && v !== view && $(`${v}-container`)) $(`${v}-container`).innerHTML = ""; });
     currentView = view;
@@ -513,7 +531,13 @@ function switchView(view, silent) {
     $("app-screen").classList.remove("nav-open");
     if (view === "branding") brandDraft = null;
     renderView(view);
-    if (!silent) $("main").scrollTop = 0;
+    syncStick();
+    if (!silent) {
+        const keep = viewScroll[view], y = keep && Date.now() - keep.at < SCROLL_KEEP_MS ? keep.y : 0;
+        setScrollY(y);
+        // lists draw in over the next frames; put the page back once they have their height
+        if (y) { requestAnimationFrame(() => { if (currentView === view) { setScrollY(y); syncStick(); requestAnimationFrame(() => { if (currentView === view) setScrollY(y); }); } }); }
+    }
 }
 
 function setBadge(id, n, info) {

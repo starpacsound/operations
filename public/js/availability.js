@@ -124,7 +124,7 @@ function renderAvailability() {
         ${availMonth !== thisMonth() ? `<button type="button" class="link-btn" data-av-month="0">This month</button>` : ""}
         <span class="av-legend"><i class="av-lg A"></i>Available <i class="av-lg S"></i>Soft booked <i class="av-lg C"></i>Confirmed</span>
     </div>`;
-    host.innerHTML = tabs + nav + (availTab === "team" ? teamHtml() : availTab === "shows" ? jobsHtml() : mineHtml()) + (isAdmin() ? availSettingsHtml() : "");
+    host.innerHTML = `<div class="stick">${tabs}${nav}</div>` + (availTab === "team" ? teamHtml() : availTab === "shows" ? jobsHtml() : mineHtml()) + (isAdmin() ? availSettingsHtml() : "");
     if (availTab === "mine") markBookingsSeen();
     renderNavBadges();
 }

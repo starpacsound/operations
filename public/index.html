@@ -190,7 +190,7 @@
 
             <!-- ---------- Asset Catalogue ---------- -->
             <section id="view-catalogue" class="view">
-                <div class="view-head">
+                <div class="view-head stick">
                     <div><h1>Asset Catalogue</h1><p class="view-sub">Every asset, grouped by model.</p></div>
                     <div class="toolbar">
                         <button type="button" class="btn importer-only" onclick="openImportModal()">Import</button>
@@ -207,7 +207,7 @@
                     </div>
                 </div>
                 <div id="ops-strip" class="ops-strip"></div>
-                <div class="filter-bar">
+                <div class="filter-bar stick-sub">
                     <input type="search" id="search-input" class="filter-input" oninput="handleSearch()" placeholder="Search category, brand, model, asset no, serial, code, space, location…">
                     <select id="filter-category" class="filter-select" onchange="handleSearch()"><option value="ALL">All categories</option></select>
                     <select id="filter-location" class="filter-select" onchange="handleSearch()"><option value="ALL">All spaces / locations</option></select>
@@ -234,6 +234,7 @@
 
             <!-- ---------- Rack Layout ---------- -->
             <section id="view-rack" class="view hidden">
+                <div class="view-top stick">
                 <div class="view-head">
                     <div><h1>Rack Layout</h1><p class="view-sub">Where everything lives: space › location › equipment type.</p></div>
                     <div class="toolbar">
@@ -249,12 +250,14 @@
                     <select id="rack-category" class="filter-select" onchange="renderRack()"><option value="ALL">All categories</option></select>
                     <label class="check-inline"><input type="checkbox" id="rack-retired" onchange="renderRack()"> Show sold / decommissioned</label>
                 </div>
+                </div>
                 <div class="edit-banner hidden">Edit mode is on. Changes save when you leave a cell.</div>
                 <div id="rack-container" class="asset-zone"></div>
             </section>
 
             <!-- ---------- Inventory Check ---------- -->
             <section id="view-check" class="view hidden">
+                <div class="view-top stick">
                 <div class="view-head">
                     <div><h1>Inventory Check</h1><p class="view-sub">Walk the racks, tick what you can see, report anything that's different.</p></div>
                     <div class="toolbar">
@@ -265,11 +268,12 @@
                     <button type="button" class="sub-tab active" data-check-tab="current" role="tab">Current rounds</button>
                     <button type="button" class="sub-tab history-only" data-check-tab="history" role="tab">History</button>
                 </div>
+                </div>
                 <div id="check-current">
                     <div id="check-rounds" class="round-picker"></div>
                     <div id="check-round" class="round-banner"></div>
                     <div id="check-review"></div>
-                    <div class="filter-bar" id="check-filters">
+                    <div class="filter-bar stick-sub" id="check-filters">
                         <input type="search" id="check-search" class="filter-input" oninput="renderCheckSoon()" placeholder="Search model, internal no, serial, location…">
                         <label class="check-inline"><input type="checkbox" id="check-unchecked" onchange="renderCheck()"> Unchecked only</label>
                         <button type="button" class="btn btn-sm" onclick="rackExpandAll('check', true)">Expand all</button>
@@ -281,14 +285,16 @@
 
             <!-- ---------- Faults & Repairs (maintenance) ---------- -->
             <section id="view-maintenance" class="view hidden">
+                <div class="view-top stick">
                 <div class="view-head">
                     <div><h1>Faults &amp; Repairs</h1><p class="view-sub">Fault reports flow from Requests → Confirmed Faulty → Repairing → back to the catalogue.</p></div>
                     <div class="toolbar"><button type="button" class="btn btn-primary maint-submit-only" onclick="openLogMaintenance()">+ Log Maintenance</button></div>
                 </div>
+                </div>
                 <div id="maint-sections"></div>
                 <div class="maint-section stage-repairing" id="maint-repair">
                     <div class="maint-head"><div><h3>Repairing <span class="count" id="repair-count">0</span></h3><p class="muted small">Currently with an external vendor.</p></div></div>
-                    <div class="filter-bar repair-filters">
+                    <div class="filter-bar repair-filters stick-sub">
                         <input type="search" id="repair-search" class="filter-input" oninput="renderRepairRows()" placeholder="Search asset, serial, fault, vendor, notes…" aria-label="Search repairs">
                         <select id="repair-vendor" class="filter-select" onchange="renderRepairRows()" aria-label="Vendor"><option value="ALL">All vendors</option></select>
                         <label class="date-filter">Sent from <input type="date" id="repair-from" class="filter-select" onchange="renderRepairRows()"></label>
@@ -305,15 +311,18 @@
 
             <!-- ---------- Loans ---------- -->
             <section id="view-loans" class="view hidden">
+                <div class="view-top stick">
                 <div class="view-head">
                     <div><h1>Equipment Loans</h1><p class="view-sub" id="loans-sub">Borrow gear for rehearsals and events.</p></div>
                     <div class="toolbar"><button type="button" class="btn btn-primary loan-request-only" onclick="openLoanRequest()">+ Request Loan</button></div>
+                </div>
                 </div>
                 <div id="loans-container"></div>
             </section>
 
             <!-- ---------- Shows ---------- -->
             <section id="view-shows" class="view hidden">
+                <div class="view-top stick">
                 <div class="view-head">
                     <div><h1>Show Sign-Out</h1><p class="view-sub">Sign gear out for a show, then tick it back in afterwards.</p></div>
                     <div class="toolbar"><button type="button" class="btn btn-primary show-signout-only" onclick="openNewShow()">+ New Show Sign-Out</button></div>
@@ -325,11 +334,13 @@
                     </select>
                     <label class="check-inline shows-all-only"><input type="checkbox" id="show-mine"> Mine only</label>
                 </div>
+                </div>
                 <div id="shows-container"></div>
             </section>
 
             <!-- ---------- Log history ---------- -->
             <section id="view-logs" class="view hidden">
+                <div class="view-top stick">
                 <div class="view-head">
                     <div><h1>Activity Log</h1><p class="view-sub">Every change to assets, workflows and access.</p></div>
                     <div class="toolbar">
@@ -342,6 +353,7 @@
                     <select id="log-action" class="filter-select" onchange="renderLogs()"><option value="ALL">All actions</option></select>
                     <label class="date-filter">From <input type="date" id="log-from" class="filter-select" onchange="renderLogs()"></label>
                     <label class="date-filter">To <input type="date" id="log-to" class="filter-select" onchange="renderLogs()"></label>
+                </div>
                 </div>
                 <div class="panel"><div class="table-scroll">
                     <table class="data-table log-table">

@@ -2,7 +2,7 @@
 Run:  npm run serve   (or: python3 -m http.server 8765 --directory public)
       python3 tests/e2e_demo.py [url] [screenshot-dir]
 """
-import datetime, os, sys
+import datetime, os, sys, time
 from playwright.sync_api import sync_playwright
 
 BASE = sys.argv[1] if len(sys.argv) > 1 else "http://localhost:8765/index.html?demo"
@@ -15,9 +15,14 @@ def check(name, cond):
     print(("PASS " if cond else "FAIL ") + name)
 
 
-def login(page, email):
+def login(page, email, stay=False):
     page.click(f"[data-demo='{email}']")
     page.wait_for_selector("#app-screen:not(.hidden)")
+    # v5.3: the app opens on Today; most checks start from the Asset Catalogue.
+    page.wait_for_selector("#view-today:not(.hidden)", timeout=5000)
+    if not stay and page.locator(".nav-item[data-view=catalogue]:not(.hidden)").count():
+        page.click(".nav-item[data-view=catalogue]")
+        page.wait_for_timeout(120)
 
 
 def logout(page):
@@ -104,7 +109,7 @@ with sync_playwright() as p:
     # ---- sign-up needs a Casual ID ----
     page.click(".seg-tab[data-tab=signup]")
     check("sign-up asks for Casual ID", page.is_visible("#auth-casual"))
-    check("sign-up marks every field compulsory", all(t.strip().endswith("*") for t in page.locator("#auth-form .field:visible label").all_inner_texts()))
+    check("sign-up marks every field compulsory", all(t.strip().endswith("*") for t in page.locator("#auth-form .field:visible > label:not(.check-inline)").all_inner_texts()))
     err = lambda: (page.click("#auth-submit"), page.wait_for_timeout(80), page.inner_text("#auth-error"))[2]
     check("name is compulsory", "full name" in err())
     page.fill("#auth-name", "Test Signup")
@@ -172,6 +177,11 @@ with sync_playwright() as p:
     page.click(".finance-chip")
     shown = ev(page, "getFiltered().map(a => a.internalAssetNo)")
     check("'Needs finance code' = year set, no code", len(shown) >= 2 and all(ev(page, f"needsFinance(inventory.find(a => a.internalAssetNo === {s!r}))") for s in shown))
+    page.click(".nocode-chip")
+    nc = ev(page, "getFiltered().map(a => a.id)")
+    check("'No code' chip = every asset in use without a Code, any year",
+          page.input_value("#filter-year") == "NOCODE" and set(nc) == set(ev(page, "inventory.filter(a => !dv(a.code) && !RETIRED.includes(a.condition)).map(a => a.id)"))
+          and len(nc) > len(shown) and "No code" in page.locator("#filter-year option").all_inner_texts())
     page.select_option("#filter-year", "2023")
     check("filter by a purchase year", set(ev(page, "getFiltered().map(a => a.model)")) == {"DPA 4060"})
     page.click("[data-clear]")
@@ -324,7 +334,7 @@ with sync_playwright() as p:
     page.fill("#acc-search", "marcus")
     check("people search narrows the list", page.locator(".acc-item:not(.tpl)").count() == 1)
     page.click("[data-acc-pick='u-member']")
-    check("picking a person opens their access", "Marcus" in page.inner_text("#acc-pane h3") and page.locator(".acc-mod").count() == 9)
+    check("picking a person opens their access", "Marcus" in page.inner_text("#acc-pane h3") and page.locator(".acc-mod").count() == 10)
     check("Calendar box is in the editor", "Calendar" in page.inner_text("[data-acc-mod=events]"))
     page.uncheck("[data-acc-f='events.view']"); page.click("#acc-save"); page.wait_for_timeout(300)
     check("admin can hide the Calendar tab from a member", ev(page, "effectivePerm(users.find(u => u.id === 'u-member')).events.view") is False)
@@ -348,8 +358,8 @@ with sync_playwright() as p:
     check("module tick sets every feature", page.locator("[data-acc-f='logs.view']").is_checked() and page.locator("[data-acc-f='logs.pdf']").is_checked())
     page.click("[data-acc-act='discard']"); page.wait_for_timeout(120)
     check("discard drops the draft", not page.locator("[data-acc-f='logs.view']").is_checked() and ev(page, "roleTemplate('Member').perm.logs.view") is False)
-    page.fill("#acc-feat-search", "repair")
-    check("feature filter narrows the list", page.locator(".acc-feat:not(.hidden)").count() == 2)
+    page.fill("#acc-feat-search", "repairing")
+    check("feature filter narrows the list", page.locator(".acc-feat:not(.hidden)").count() == 1)
     page.fill("#acc-feat-search", "")
     go(page, "branding")
     page.fill("#vn-new", "LT3"); page.click("#vn-form button[type=submit]"); page.wait_for_timeout(150)
@@ -404,7 +414,8 @@ with sync_playwright() as p:
     mb.locator("summary").click()
     check("member sees teammates on the show", "Farah (Co-Admin) - SE" in mb.inner_text())
     check("new bookings are announced", page.locator(".av-banner").count() == 1 and page.locator(".av-book-list li").count() >= 2)
-    go(page, "events"); ev(page, "availMonth = thisMonth(); renderEvents()"); page.wait_for_timeout(150)
+    # the demo's Welcome Concert is 9 days ahead, which can fall in next month
+    go(page, "events"); ev(page, "availMonth = (() => { const d = new Date(); d.setDate(d.getDate() + 9); return d.toLocaleDateString('en-CA').slice(0, 7); })(); renderEvents()"); page.wait_for_timeout(300)
     check("member's Calendar shows only their own shows", ev(page, "eventJobs().every(j => (j.crewUids || []).includes(authUser.uid))")
           and page.locator(".ev-chip", has_text="Welcome Concert").count() == 1 and page.locator(".ev-chip.kind-maint").count() == 0)
     ev(page, "profile = { ...profile, perm: { ...profile.perm, events: { view: false, viewAll: false } } }; applyRoleVisibility()")
@@ -555,7 +566,8 @@ with sync_playwright() as p:
     grp.locator("tr", has_text="Priya").locator("[data-jb-remove]").click(); dialog_ok(page)
     check("remove from show frees their day", len(gala()["crew"]) == 1 and bday not in rec("u-crew")["soft"])
     # 7) bookings without a show (e.g. from the Sheet)
-    page.click("[data-av-month='0']"); page.wait_for_timeout(150)
+    # the month 13 days ahead always holds a demo booking with no show (Priya, confirmed) - the current month may not, near month end
+    ev(page, "availMonth = (() => { const d = new Date(); d.setDate(d.getDate() + 13); return d.toLocaleDateString('en-CA').slice(0, 7); })(); renderAvailability()"); page.wait_for_timeout(250)
     check("bookings without show details are listed", page.locator(".needs-details li").count() >= 1)
     page.locator(".needs-details [data-jb-day]").first.click(); page.wait_for_selector("#dm-form")
     check("'Add details' opens the booking form", page.is_visible("#dm-title"))
@@ -569,9 +581,11 @@ with sync_playwright() as p:
     shot(page, "availability-team")
     # Calendar tab: of shows / maintenance calls
     go(page, "events")
-    ev(page, "availMonth = thisMonth(); renderEvents()"); page.wait_for_timeout(150)
+    ev(page, "availMonth = (() => { const d = new Date(); d.setDate(d.getDate() + 2); return d.toLocaleDateString('en-CA').slice(0, 7); })(); renderEvents()"); page.wait_for_timeout(300)
+    has_maint = page.locator(".ev-chip.kind-maint").count() >= 1
+    ev(page, "availMonth = (() => { const d = new Date(); d.setDate(d.getDate() + 9); return d.toLocaleDateString('en-CA').slice(0, 7); })(); renderEvents()"); page.wait_for_timeout(300)
     check("Calendar tab shows shows and maintenance calls", page.locator(".ev-chip", has_text="Welcome Concert").count() == 1
-          and page.locator(".ev-chip.kind-maint").count() >= 1 and page.locator(".nav-item[data-view=plan]").count() == 0)
+          and has_maint and page.locator(".nav-item[data-view=plan]").count() == 0)
     page.locator(".ev-chip", has_text="Welcome Concert").click(); page.wait_for_selector("#dyn-modal")
     check("clicking an event shows time, venue and crew with roles", "1400–1700" in page.inner_text("#dyn-modal") and "LT1" in page.inner_text("#dyn-modal")
           and page.locator("#dyn-modal .ev-crew li").count() == 2 and "Open plan" not in page.inner_text("#dyn-modal"))
@@ -588,7 +602,7 @@ with sync_playwright() as p:
     check("old profiles without a Calendar row keep the tab", ev(page, "effectivePerm({ role: 'Member', perm: { avail: { view: true, edit: true } } }).events.view === true && effectivePerm({ role: 'Member', perm: { avail: { view: true } } }).events.viewAll === false"))
     check("different venues get different colours", len(set(ev(page, "settings.venues.list.map(v => venueColor(v))"))) == 6)
     go(page, "availability")
-    ev(page, "availTab = 'shows'; availMonth = thisMonth(); renderAvailability()"); page.wait_for_timeout(200)
+    ev(page, "availTab = 'shows'; availMonth = (() => { const d = new Date(); d.setDate(d.getDate() + 9); return d.toLocaleDateString('en-CA').slice(0, 7); })(); renderAvailability()"); page.wait_for_timeout(400)
     check("same venue colour on the Shows & manpower list", page.locator(".job-group", has_text="Welcome Concert").evaluate("e => e.style.getPropertyValue('--vc')") == chip_vc)
     # Reminders: who hasn't filled next month, Remind now (selected), remind again
     ev(page, "availTab = 'team'; availMonth = addMonths(thisMonth(), 1); availQuery = ''; availRole = ''; availDay = ''; renderAvailability()"); page.wait_for_timeout(200)
@@ -601,6 +615,11 @@ with sync_playwright() as p:
     page.click("[data-rm-send=all]"); page.wait_for_timeout(200)
     check("can remind again; count shown", "2 times" in page.locator("#av-remind tr", has_text="Ken").inner_text())
     check("reminders aren't logged", not logs_has(page, "logs.some(l => l.action === 'Availability reminder sent')"))
+    check("v5.4.1: roster sorts by Casual ID number, Co-Admins right below", ev(page, "[{uid:'a',name:'Zed',casualId:'C20788'},{uid:'b',name:'Amy',casualId:'C9'},{uid:'u-coadmin',name:'Farah',casualId:''},{uid:'c',name:'Bo',casualId:'C100'},{uid:'d',name:'Cy',casualId:''}].sort(rosterCmp).map(p => p.name).join()") == "Amy,Bo,Zed,Farah,Cy"
+          and ev(page, "gridRows().map(r => r.uid)")[-1] != "" )
+    check("v5.4.1: Co-Admins are on the roster but never flagged as not filled", ev(page, "rosterPeople().some(p => p.uid === 'u-coadmin')")
+          and page.locator("#av-remind tr", has_text="Farah").locator(".warn-tag").count() == 0 and page.locator("#av-remind tr", has_text="Farah").locator("[data-rm-uid]").count() == 0
+          and ev(page, "!reminders.some(r => r.uids.includes('u-coadmin')) && pendingAsks().length === 0"))
     logout(page)
     page.fill("#auth-email", "ken@showbase.com"); page.fill("#auth-password", "123"); page.click("#auth-submit")
     page.wait_for_selector("#app-screen:not(.hidden)"); page.wait_for_timeout(300)
@@ -823,6 +842,382 @@ with sync_playwright() as p:
     check("roles: clicking again unticks it, other roles kept", ev(page, "(crewRoleMap['u-crew'] || []).includes('NEW')") == had
           and ev(page, "(crewRoleMap['u-crew'] || []).includes('CRS')"))
     check("roles: no roster Sheet wording left", "roster Sheet" not in page.inner_text("#view-availability") and "roster Google Sheet" not in page.inner_text("#view-availability"))
+
+    # ================= v5.2.3: picking Faulty opens the fault report =================
+    if ev(page, "authUser.email") != "admin@showbase.com":
+        logout(page); login(page, "admin@showbase.com"); page.wait_for_timeout(300)
+    go(page, "catalogue")
+    pick = ev(page, "(() => { const a = inventory.find(x => x.condition === 'Available' && x.internalAssetNo && !tickets.some(t => t.assetId === x.id) && !isGeneral(x)); return { id: a.id, model: a.model, label: a.internalAssetNo }; })()")
+    open_group(page, pick["model"])
+    sel = f"#inventory-container .cond-select[data-id='{pick['id']}']"
+    page.locator(sel).select_option("Faulty"); page.wait_for_timeout(200)
+    check("faulty: picking Faulty opens the same Log Maintenance pop-up as the ⚠ button, with the asset filled in",
+          page.is_visible("#lm-form") and pick["label"] in page.inner_text("#lm-selected") and page.input_value("#lm-cond") == "Faulty" and page.input_value("#lm-type") == "Fault")
+    check("faulty: an Admin starts on 'Confirmed Faulty'", page.is_checked("input[name=lm-mode][value=confirm]"))
+    page.click("#dyn-modal [data-close]"); page.wait_for_timeout(200)
+    check("faulty: cancelling leaves the condition as it was", asset(page, pick["label"], "condition") == "Available" and page.locator(sel).input_value() == "Available")
+    page.locator(sel).select_option("Faulty"); page.wait_for_timeout(200)
+    page.fill("#lm-desc", "No output on channel 2")
+    page.click("#lm-form button[type=submit]"); page.wait_for_timeout(300)
+    check("faulty: submitting makes a ticket and sets the asset to Faulty",
+          asset(page, pick["label"], "condition") == "Faulty" and ev(page, f"tickets.some(t => t.assetId === {pick['id']!r} && t.stage === 'confirmed' && t.faultDescription === 'No output on channel 2')"))
+    # the pencil form: other edits are saved, then the fault report opens
+    go(page, "catalogue")
+    pick2 = ev(page, "(() => { const a = inventory.find(x => x.condition === 'Available' && x.internalAssetNo && !tickets.some(t => t.assetId === x.id) && !isGeneral(x)); return { id: a.id, model: a.model, label: a.internalAssetNo }; })()")
+    ev(page, f"editAsset({pick2['id']!r})"); page.wait_for_selector("#asset-form")
+    page.select_option("#form-condition", "Faulty"); page.fill("#form-remarks", "Crackles when moved")
+    page.click("#asset-form button[type=submit]"); page.wait_for_timeout(300)
+    check("faulty: in the edit form, other changes save and the fault report opens",
+          asset(page, pick2["label"], "remarks") == "Crackles when moved" and page.is_visible("#lm-form") and pick2["label"] in page.inner_text("#lm-selected")
+          and asset(page, pick2["label"], "condition") == "Available")
+    page.click("#dyn-modal [data-close]"); page.wait_for_timeout(200)
+    # an asset that already has an open ticket just changes condition
+    ev(page, f"switchView('catalogue')"); open_group(page, pick["model"])
+    page.locator(sel).select_option("Available"); page.wait_for_timeout(200)
+    page.locator(sel).select_option("Faulty"); page.wait_for_timeout(200)
+    check("faulty: with an open ticket already, Faulty is set without a second report", not page.is_visible("#lm-form") and asset(page, pick["label"], "condition") == "Faulty")
+
+    # ================= v5.2: Admins edit the asset conditions =================
+    logout(page); login(page, "admin@showbase.com"); page.wait_for_timeout(300)
+    go(page, "branding")
+    check("conditions: the 9 built-ins are listed, with no rename / remove", page.locator("#cd-list tr").count() == 9 and page.locator("#cd-list [data-cd-rename]").count() == 0)
+    page.fill("#cd-name", "Faulty")
+    page.click("#cd-form button[type=submit]"); page.wait_for_timeout(200)
+    check("conditions: a duplicate name is refused", page.locator("#cd-list tr").count() == 9)
+    page.fill("#cd-name", "Upgraded"); page.fill("#cd-short", "Upgr"); page.select_option("#cd-color", "warn")
+    page.click("#cd-form button[type=submit]"); page.wait_for_timeout(300)
+    check("conditions: Admin adds Upgraded (saved in one record)", page.locator("#cd-list tr[data-cd='Upgraded']").count() == 1
+          and ev(page, "store.getDoc('settings', 'conditions').then(d => d.list.some(c => c.name === 'Upgraded' && c.short === 'Upgr' && c.color === 'warn' && !c.retired))"))
+    check("conditions: it's in the filter, the asset form and every condition dropdown", ev(page, "[...document.querySelectorAll('#filter-condition option')].some(o => o.value === 'Upgraded') && [...document.querySelectorAll('#form-condition option')].some(o => o.value === 'Upgraded') && condOptions('Available').includes('Upgraded')"))
+    check("conditions: it gets its colour", ev(page, "getComputedStyle(document.querySelector('#cd-list tr[data-cd=Upgraded] .pill')).getPropertyValue('--c').trim()") == ev(page, "getComputedStyle(document.documentElement).getPropertyValue('--warn').trim()"))
+    go(page, "catalogue")
+    g = open_group(page, "SM58")
+    sm = asset(page, "SM58 #3", "id")
+    page.locator(f".cond-select[data-id='{sm}']").select_option("Upgraded"); page.wait_for_timeout(300)
+    check("conditions: an asset can be set to Upgraded", asset(page, "SM58 #3", "condition") == "Upgraded")
+    check("conditions: Upgraded shows in the summary chips", page.locator(".chip[data-cond='Upgraded']").count() == 1 and "1" in page.locator(".chip[data-cond='Upgraded']").inner_text())
+    check("conditions: not retired, so it's still counted in check rounds", ev(page, f"inVenue(inventory.find(a => a.id === {sm!r}), dv(inventory.find(a => a.id === {sm!r}).itemSpace) || UNASSIGNED)"))
+    conds = ev(page, "csvRowsToItems([['category','brand','model','condition'], ['Mics','Shure','SM7B','upgraded'], ['Mics','Shure','SM7B','UPGR'], ['Mics','Shure','SM7B','Broken-ish'], ['Mics','Shure','SM7B','sold']]).items.map(i => i.condition)")
+    check("conditions: import matches added conditions by name or short label; unknown -> To Check", conds == ["Upgraded", "Upgraded", "To Check", "Sold"])
+    go(page, "branding")
+    page.locator("#cd-list tr[data-cd='Upgraded'] [data-cd-rm]").click(); page.wait_for_timeout(200)
+    check("conditions: can't remove one that assets still have", page.locator("#cd-list tr[data-cd='Upgraded']").count() == 1 and not page.is_visible("#dlg-form"))
+    page.locator("#cd-list tr[data-cd='Upgraded'] [data-cd-retired]").check(); page.wait_for_timeout(300)
+    check("conditions: ticking 'counts as retired' takes it out of check rounds", ev(page, "RETIRED.includes('Upgraded')") and not ev(page, f"inVenue(inventory.find(a => a.id === {sm!r}), dv(inventory.find(a => a.id === {sm!r}).itemSpace) || UNASSIGNED)"))
+    page.locator("#cd-list tr[data-cd='Upgraded'] [data-cd-rename]").click()
+    dialog_ok(page, "Due for upgrade"); page.wait_for_timeout(300)
+    check("conditions: renaming moves the assets to the new name", asset(page, "SM58 #3", "condition") == "Due for upgrade" and page.locator("#cd-list tr[data-cd='Due for upgrade']").count() == 1 and not ev(page, "CONDITIONS.includes('Upgraded')"))
+    check("conditions: the rename is logged", logs_has(page, "logs.some(l => l.action === 'Condition renamed')"))
+    go(page, "catalogue")
+    open_group(page, "SM58")
+    page.locator(f".cond-select[data-id='{sm}']").select_option("Available"); page.wait_for_timeout(300)
+    go(page, "branding")
+    page.locator("#cd-list tr[data-cd='Due for upgrade'] [data-cd-rm]").click()
+    dialog_ok(page); page.wait_for_timeout(300)
+    check("conditions: once unused it can be removed", not ev(page, "CONDITIONS.includes('Due for upgrade')") and page.locator("#cd-list tr").count() == 9)
+
+    # ================= v5.2: big imports - one run at a time, progress, safe to run again =================
+    import tempfile
+    def csv_file(n, cat, name):
+        path = os.path.join(tempfile.gettempdir(), name)
+        with open(path, "w") as f:
+            f.write("Type,Category,Brand,Model,Internal Asset No.,Serial No.,Condition\n")
+            for i in range(n):
+                f.write(f"Detailed,{cat},Shure,ULXD2,{cat} #{i + 1},SN{i:05d},Available\n")
+        return path
+    def start_import(path, mode="append"):
+        ev(page, "openImportModal()")
+        page.set_input_files("#csv-file-input", path)
+        page.check(f"input[name=importMode][value={mode}]")
+    count = lambda cat: ev(page, f"inventory.filter(a => a.category === {cat!r}).length")
+    go(page, "catalogue")
+    f450 = csv_file(450, "Imp Test", "imp450.csv")
+    start_import(f450)
+    ev(page, "window._prog = []; new MutationObserver(() => _prog.push(document.getElementById('import-progress').textContent)).observe(document.getElementById('import-progress'), { childList: true, characterData: true, subtree: true })")
+    ev(page, "document.getElementById('import-go').click(); document.getElementById('import-go').click()")
+    page.wait_for_selector("#import-modal.hidden", state="attached"); page.wait_for_timeout(300)
+    check("import: a second click while it runs doesn't import twice", count("Imp Test") == 450)
+    check("import: shows progress while saving", any("Saving 400 of 450" in t for t in ev(page, "_prog")))
+    start_import(f450)
+    page.click("#import-go"); dialog_ok(page); page.wait_for_selector("#import-modal.hidden", state="attached"); page.wait_for_timeout(300)
+    check("import: the same file again overwrites, no duplicates", count("Imp Test") == 450)
+    # Rack Layout search with many assets: no freeze
+    go(page, "rack")
+    page.fill("#rack-search", "imp test"); page.wait_for_timeout(450)
+    check("rack search: many matches show a hint instead of opening every row", page.is_visible(".search-hint") and "450 matches" in page.inner_text(".search-hint")
+          and page.locator("#rack-container tr", has_text="Imp Test #").count() == 0)
+    page.fill("#rack-search", "imp test #12"); page.wait_for_timeout(450)
+    check("rack search: a narrow search opens its matches", page.locator("#rack-container tbody tr").count() == 11 and not page.is_visible(".search-hint"))
+    page.fill("#rack-search", ""); page.wait_for_timeout(450)
+    key = ev(page, "(() => { const a = inventory.find(x => x.category === 'Imp Test'); return `C|${dv(a.itemSpace) || 'TBC'}|${dv(a.itemLocation) || 'TBC'}|Imp Test`; })()")
+    ev(page, f"rackState.rack.set({key!r}, true); renderRack()")
+    cat_rows = lambda: page.locator(".rack-cat", has=page.locator(f"[data-node={key!r}]")).locator("tbody tr").count()
+    check("rack: a big category draws its first 100 rows with a Show all button", cat_rows() == 100 and page.locator("[data-cat-all]").count() == 1)
+    page.click("[data-cat-all]"); page.wait_for_timeout(200)
+    check("rack: Show all draws the rest", cat_rows() == 450)
+    ev(page, "document.querySelectorAll('.rack-loc').forEach(el => el.dataset.mark = '1'); 0")
+    page.locator(f"[data-node={key!r}]").click(); page.wait_for_timeout(150)
+    check("rack: closing a category redraws only its location", cat_rows() == 0
+          and ev(page, "[...document.querySelectorAll('.rack-loc')].filter(el => !el.dataset.mark).length") == 1)
+    go(page, "catalogue")
+    n_groups = ev(page, "new Set(inventory.map(groupKeyOf)).size")
+    ev(page, "openDrawers.clear(); groupsShown = 5; renderCatalogue()")
+    check("catalogue: long model lists draw a page at a time, with Show more", page.locator(".asset-group").count() == 5 and page.is_visible("[data-groups-more=all]"))
+    page.click("[data-groups-more=all]"); page.wait_for_timeout(150)
+    check("catalogue: Show all draws every model", page.locator(".asset-group").count() == n_groups)
+    go(page, "catalogue")
+    check("rack: leaving Rack Layout drops its rows from the page", ev(page, "document.querySelectorAll('#rack-container tr').length") == 0)
+    # a connection drop part-way, then the same file again finishes the job
+    f900 = csv_file(900, "Imp Drop", "imp900.csv")
+    ev(page, "window._orig = store.commitPlain; window._n = 0; store.commitPlain = async ops => { if (ops.some(o => o.col === 'inventory') && ++_n === 2) throw Object.assign(new Error('offline'), { code: 'unavailable' }); return _orig(ops); }; 0")
+    start_import(f900)
+    page.click("#import-go"); page.wait_for_timeout(800)
+    err = page.inner_text("#import-error")
+    check("import: a stop part-way says how far it got and to run it again", "stopped after 400 of 900" in err and "again" in err and page.is_enabled("#import-go"))
+    check("import: rows saved before the stop are kept", count("Imp Drop") == 400)
+    ev(page, "store.commitPlain = _orig; 0")
+    errors[:] = [e for e in errors if "offline" not in e]   # the simulated drop is logged on purpose
+    page.click("#import-go"); dialog_ok(page); page.wait_for_selector("#import-modal.hidden", state="attached"); page.wait_for_timeout(300)
+    check("import: running it again fills in the rest without duplicates", count("Imp Drop") == 900)
+    # Replace all: keeps rows from the file, removes everything else
+    f3 = csv_file(3, "Imp Drop", "imp3.csv")
+    start_import(f3, "replace")
+    page.click("#import-go"); dialog_ok(page); page.wait_for_selector("#import-modal.hidden", state="attached"); page.wait_for_timeout(300)
+    check("import: Replace all leaves exactly the file's rows", ev(page, "inventory.length") == 3 and count("Imp Drop") == 3)
+
+    # ================= v5.3: Today page, next-show card, shared show gear =================
+    page.goto(BASE); page.wait_for_selector("#login-screen:not(.hidden)")
+    login(page, "member@showbase.com", stay=True); page.wait_for_timeout(300)
+    check("v5.3: the app opens on Today", page.locator("#view-today:not(.hidden)").count() == 1 and page.locator(".nav-item").first.get_attribute("data-view") == "today")
+    navtxt = page.locator("#nav").inner_text()
+    check("v5.3: menu renames", all(x in navtxt for x in ["Today", "Faults & Repairs", "My Availability", "Show Calendar", "Show Sign-Out", "Rack Layout"])
+          and "CREW" in navtxt.upper() and not any(x in navtxt.upper() for x in ["MAINTENANCE", "EVENTS", "\nAVAILABILITY", "\nCALENDAR"]))
+    check("v5.3: tagline + tab title", page.locator(".sidebar .brand-sub").inner_text() == "Gear, Shows & Crew" and "Gear, Shows & Crew" in page.title())
+    check("v5.3: next show card shows the next booking", page.locator(".today-show").inner_text() == "Jazz Night"
+          and "The%20Arc" in (page.locator(".today-card a[href*='google.com/maps']").first.get_attribute("href") or "")
+          and "Marcus" in page.locator(".today-crew").inner_text())
+    check("v5.3: install how-to is offered", page.locator("#today-install").count() == 1)
+    page.click("[data-today-gear='job-2']"); page.wait_for_selector("#sh-form")
+    check("v5.3: Sign out gear fills in the show from the calendar", page.input_value("#sh-title") == "Jazz Night" and page.input_value("#sh-venue") == "The Arc"
+          and page.locator("#sh-title").get_attribute("readonly") is not None)
+    page.fill("#sh-search", "Shure SM58"); page.press("#sh-search", "Enter"); page.wait_for_timeout(100)
+    page.click("#sh-form button[type=submit]"); page.wait_for_timeout(300)
+    js2 = ev(page, "store.getDoc('shows', 'job_job-2')")
+    check("v5.3: the job's shared sign-out is created and linked", js2 and js2["jobId"] == "job-2" and js2["crewUids"] == ["u-member"] and js2["status"] == "out")
+    check("v5.3: it opens in Show Sign-Out as a crew list", page.locator("#view-shows:not(.hidden)").count() == 1 and page.locator(".show-card .shared-tag").count() >= 1)
+    page.click(".nav-item[data-view=today]"); page.wait_for_timeout(200)
+    page.click("[data-today-gear='job-2']"); page.wait_for_timeout(300)
+    check("v5.3: pressing it again opens the same list (no duplicate)", ev(page, "shows.filter(s => s.jobId === 'job-2').length") == 1 and page.locator("#sh-form").count() == 0)
+    # Marcus starts the list for the Welcome Concert; a booker adds Priya to the job (and so to the list)
+    ev(page, "openJobGear(myJobs.find(j => j.id === 'job-1'))"); page.wait_for_selector("#sh-form")
+    page.fill("#sh-search", "XLR 10m"); page.press("#sh-search", "Enter")
+    page.fill("#sh-search", "Mic stand"); page.press("#sh-search", "Enter"); page.wait_for_timeout(100)
+    page.click("#sh-form button[type=submit]"); page.wait_for_timeout(300)
+    logout(page); login(page, "coadmin@showbase.com", stay=True); page.wait_for_timeout(400)
+    ev(page, """(async () => { const j = (await store.getAll('jobs', {})).find(x => x.id === 'job-1');
+        const crew = [...j.crew, { uid: 'u-crew', name: 'Priya (restricted crew)', casualId: 'C20533', role: 'CRS' }];
+        await store.commit([{ op: 'update', col: 'jobs', id: 'job-1', data: { crew, crewUids: crew.map(c => c.uid) } }, ...jobShowCrewOps('job-1', crew.map(c => c.uid))]); })()""")
+    page.wait_for_timeout(300)
+    check("v5.3: booker's crew change updates the shared list", sorted(ev(page, "store.getDoc('shows', 'job_job-1')")["crewUids"]) == ["u-coadmin", "u-crew", "u-member"])
+    tiles = page.locator("#today-container").inner_text()
+    check("v5.3: Today tiles for a Co-Admin", "Loans to approve" in tiles and "Gear still signed out" in tiles and "Shows this week short of crew" in tiles and "Jazz Night" in tiles
+          and "no return date" in tiles and ("haven't filled" in tiles or "hasn't filled" in tiles))
+    nm = ev(page, "addMonths(thisMonth(), 1)")
+    before = ev(page, f"reminders.filter(r => r.month === '{nm}').length")
+    page.click("[data-today-remind]"); page.wait_for_timeout(300)
+    check("v5.3: Remind from Today sends next month's reminder", ev(page, f"reminders.filter(r => r.month === '{nm}').length") == before + 1)
+    logout(page); login(page, "crew@showbase.com", stay=True); page.wait_for_timeout(400)
+    check("v5.3: a maintenance call shows as the next booking", "maintenance call" in page.locator(".today-card .u-sub").first.inner_text())
+    check("v5.3: teammate sees the shared list they didn't create", ev(page, "shows.some(s => s.id === 'job_job-1')") and not ev(page, "shows.some(s => s.id === 'show-1')"))
+    go(page, "shows"); page.click("[data-show-toggle='job_job-1']"); page.wait_for_timeout(150)
+    page.locator("[data-show='job_job-1'][data-i='0']").check(); page.wait_for_timeout(300)
+    check("v5.3: a tick is saved for the whole crew", ev(page, "store.getDoc('shows', 'job_job-1')")["items"][0]["accounted"] is True)
+    page.click("[data-show-add='job_job-1']"); page.wait_for_selector("#sh-form")
+    page.fill("#sh-search", "DI box"); page.press("#sh-search", "Enter"); page.wait_for_timeout(100)
+    page.click("#sh-form button[type=submit]"); page.wait_for_timeout(300)
+    j1 = ev(page, "store.getDoc('shows', 'job_job-1')")
+    check("v5.3: teammate adds gear to the shared list", len(j1["items"]) == 3 and j1["items"][2]["name"] == "DI box" and j1["items"][0]["accounted"] is True)
+    page.click("[data-signin='job_job-1']"); dialog_ok(page); page.wait_for_timeout(300)
+    j1 = ev(page, "store.getDoc('shows', 'job_job-1')")
+    check("v5.3: teammate signs it in, unticked items missing", j1["status"] == "in" and j1["missingCount"] == 2)
+    logout(page); login(page, "coadmin@showbase.com", stay=True); page.wait_for_timeout(400)
+    go(page, "events"); ev(page, "availMonth = (() => { const d = new Date(); d.setDate(d.getDate() + 9); return d.toLocaleDateString('en-CA').slice(0, 7); })(); eventsMode = 'calendar'; renderEvents()"); page.wait_for_timeout(300)
+    check("v5.3: Show Calendar flags the show with missing gear", page.locator("[data-ev-open='job-1'] .gear-flag").count() == 1)
+    page.click("[data-ev-open='job-1']"); page.wait_for_selector(".ev-gear")
+    check("v5.3: the job shows its gear list and what's missing", "2 missing items" in page.locator(".ev-gear").inner_text() and "Open gear list" in page.locator(".ev-gear").inner_text())
+    page.click("[data-close]"); page.wait_for_timeout(100)
+
+    # ================= v5.3: loan return date TBC =================
+    go(page, "loans")
+    lc = ev(page, "loans.find(l => l.id === 'loan-5')")
+    check("loan TBC: never overdue, shows TBC", not ev(page, "isLoanOverdue(loans.find(l => l.id === 'loan-5'))") and lc["returnTbc"] is True
+          and "TBC" in page.locator("article.card", has_text="Hall 2 band room").inner_text())
+    page.locator("article.card", has_text="Hall 2 band room").locator("[data-loan=setdate]").click(); page.wait_for_selector("#sd-form")
+    page.fill("#sd-date", (datetime.date.today() + datetime.timedelta(days=4)).isoformat()); page.click("#sd-form button[type=submit]"); page.wait_for_timeout(300)
+    l5 = ev(page, "loans.find(l => l.id === 'loan-5')")
+    check("loan TBC: Set return date saves and logs it", l5["returnTbc"] is False and l5["returnDate"] == (datetime.date.today() + datetime.timedelta(days=4)).isoformat()
+          and logs_has(page, "logs.some(l => l.action === 'Loan return date set')"))
+    go(page, "loans")
+    ev(page, "openCatalogueLoan(inventory.find(a => a.condition === 'Available' && !isGeneral(a)))"); page.wait_for_selector("#cl-form")
+    page.fill("#cl-who", "Drama Club"); page.check("#cl-tbc")
+    check("loan TBC: the tick clears and disables the date", page.input_value("#cl-return") == "" and page.locator("#cl-return").is_disabled())
+    page.click("#cl-form button[type=submit]"); page.wait_for_timeout(300)
+    check("loan TBC: lending from the catalogue with no return date", ev(page, "loans.some(l => l.borrowerName === 'Drama Club' && l.returnTbc === true && l.returnDate === '' && l.status === 'collected')"))
+    logout(page); login(page, "member@showbase.com"); page.wait_for_timeout(300)
+    ev(page, "openLoanRequest()"); page.wait_for_selector("#ln-form")
+    page.fill("#ln-search", "Shure SM58"); page.press("#ln-search", "Enter"); page.check("#ln-tbc"); page.wait_for_timeout(80)
+    page.click("#ln-form button[type=submit]"); page.wait_for_timeout(300)
+    check("loan TBC: member requests with return date TBC", ev(page, "loans.some(l => l.requestedByUid === 'u-member' && l.returnTbc === true && l.status === 'requested')"))
+
+    # ================= v5.3: phone app (manifest + service worker) =================
+    mf = ev(page, "fetch('manifest.webmanifest').then(r => r.json())")
+    check("PWA: manifest has name, start page and icons", mf["short_name"] and mf["display"] == "standalone" and len(mf["icons"]) >= 3)
+    check("PWA: icons load", ev(page, "Promise.all(['icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-maskable-512.png', 'icons/apple-touch-icon.png'].map(u => fetch(u).then(r => r.ok))).then(a => a.every(Boolean))"))
+    check("PWA: no service worker on the local demo unless asked", ev(page, "navigator.serviceWorker.getRegistration().then(r => !r)"))
+    probe = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "public", "sw-probe.txt")
+    with open(probe, "w") as fh: fh.write("v1")
+    try:
+        page.goto(BASE + "&sw"); page.wait_for_selector("#login-screen:not(.hidden)")
+        ev(page, "navigator.serviceWorker.ready.then(() => true)"); page.reload(); page.wait_for_selector("#login-screen:not(.hidden)")
+        check("PWA: service worker controls the page", ev(page, "!!navigator.serviceWorker.controller"))
+        first = ev(page, "fetch('sw-probe.txt').then(r => r.text())")
+        time.sleep(1.1)   # http.server's Last-Modified has 1 s steps
+        with open(probe, "w") as fh: fh.write("v2")
+        second = ev(page, "fetch('sw-probe.txt').then(r => r.text())")
+        check("PWA: an uploaded change reaches people at once (no stale copy)", first == "v1" and second == "v2")
+        ev(page, "navigator.serviceWorker.getRegistrations().then(rs => Promise.all(rs.map(r => r.unregister())))")
+    finally:
+        os.remove(probe)
+
+    # ================= v5.3.1: full-time staff sign up without a Casual ID =================
+    page.goto(BASE); page.wait_for_selector("#login-screen:not(.hidden)")
+    page.click(".seg-tab[data-tab=signup]")
+    page.fill("#auth-name", "Full Timer"); page.fill("#auth-casual", "C1"); page.check("#auth-fulltime")
+    check("full-time: the tick clears and disables Casual ID", page.input_value("#auth-casual") == "" and page.locator("#auth-casual").is_disabled())
+    page.fill("#auth-email", "fulltimer@showbase.com"); page.fill("#auth-password", "secret123"); page.fill("#auth-password2", "secret123")
+    page.click("#auth-submit"); page.wait_for_selector("#gate-screen:not(.hidden)")
+    check("full-time: signs up with a blank Casual ID", ev(page, "profile && profile.casualId") == "" and ev(page, "profile.status") == "pending")
+    page.click("#verify-demo"); page.wait_for_timeout(200); page.click("#gate-signout"); page.wait_for_selector("#login-screen:not(.hidden)")
+    page.click(".seg-tab[data-tab=signin]")
+    login(page, "admin@showbase.com"); go(page, "users"); page.wait_for_timeout(200)
+    check("full-time: pending list says Full-time", "Full-time" in page.locator("#pending-users-list tr", has_text="fulltimer@showbase.com").inner_text())
+    page.click("[data-acc-pick='u-coadmin']"); page.click("[data-acc-act='casual']")
+    page.fill("#dlg-input", ""); page.click("#dlg-ok"); page.wait_for_timeout(150)
+    check("full-time: Admin can clear a Casual ID", ev(page, "users.find(u => u.id === 'u-coadmin').casualId") == "" and "Full-time" in page.inner_text("#access-editor"))
+
+    # ================= v5.4: Co-Admin tools, 20 colours, repeat shows, auto sign-out =================
+    check("v5.4: 20 condition colours", ev(page, "Object.keys(COND_COLORS).length") == 20)
+    go(page, "users")
+    page.click("[data-acc-pick='u-member']")
+    check("v5.4: a Member can't get the Admin tools", page.locator("[data-acc-f='admin.conditions']").is_disabled() and page.locator("[data-acc-f='admin.resetPw']").is_disabled())
+    page.click("[data-acc-pick='u-coadmin']")
+    check("v5.4: Co-Admins start without the Admin tools", not page.locator("[data-acc-f='admin.conditions']").is_checked() and not page.locator("[data-acc-f='admin.resetPw']").is_checked())
+    logout(page); login(page, "coadmin@showbase.com", stay=True)
+    check("v5.4: without the ticks, no Settings or People & Access", not ev(page, "canOpenView('branding')") and not ev(page, "canOpenView('users')"))
+    logout(page); login(page, "admin@showbase.com"); go(page, "users")
+    page.click("[data-acc-pick='u-coadmin']")
+    page.check("[data-acc-f='admin.conditions']"); page.check("[data-acc-f='admin.resetPw']"); page.click("#acc-save"); page.wait_for_timeout(300)
+    check("v5.4: Admin gives one Co-Admin both tools", ev(page, "(p => p.admin.conditions && p.admin.resetPw)(effectivePerm(users.find(u => u.id === 'u-coadmin')))") is True)
+    go(page, "branding")
+    page.select_option("#br-idle", "10"); page.wait_for_timeout(200)
+    check("v5.4: Admin sets auto sign-out time", ev(page, "settings.app.idleMinutes") == 10)
+    logout(page); login(page, "coadmin@showbase.com", stay=True)
+    check("v5.4: the tools open Settings and People & Access", ev(page, "canOpenView('branding') && canOpenView('users')") is True)
+    go(page, "branding")
+    check("v5.4: Co-Admin sees only the conditions part of Settings", page.locator("#cd-form").count() == 1 and page.locator("#br-form").count() == 0
+          and page.locator("#vn-form").count() == 0 and page.locator("#br-idle").count() == 0)
+    check("v5.4: colour list has 20 colours", page.locator("#cd-color option").count() == 20)
+    page.fill("#cd-name", "On display"); page.fill("#cd-short", "DISP"); page.select_option("#cd-color", "magenta")
+    page.click("#cd-form button[type=submit]"); page.wait_for_timeout(250)
+    check("v5.4: Co-Admin adds a condition in a new colour", ev(page, "(settings.conditions.list || []).some(c => c.name === 'On display' && c.color === 'magenta')") is True
+          and "#cf4fbd" in ev(page, "[...document.querySelectorAll('style')].map(s => s.textContent).join(' ')"))
+    go(page, "users")
+    check("v5.4: Co-Admin sees the reset list, not the access editor", page.is_visible("#pw-reset-panel") and not page.is_visible("#users-admin"))
+    check("v5.4: Admins aren't in the reset list", page.locator("[data-pw-reset='u-admin']").count() == 0 and page.locator("[data-pw-reset='u-coadmin']").count() == 0
+          and page.locator("[data-pw-reset='u-member']").count() == 1)
+    page.click("[data-pw-reset='u-member']"); page.wait_for_selector("#dlg-form")
+    page.fill("#dlg-input", "co-temp-pass-7"); page.click("#dlg-ok"); page.wait_for_selector("#tp-code")
+    check("v5.4: Co-Admin resets a member's password", page.inner_text("#tp-code") == "co-temp-pass-7" and ev(page, "users.find(u => u.id === 'u-member').mustChangePassword") is True)
+    page.click("#dyn-modal .form-actions [data-close]"); page.wait_for_timeout(100)
+    # repeat a show weekly; a second run skips the dates already there
+    go(page, "availability"); page.wait_for_timeout(300)
+    ev(page, "store.getDoc('jobs', 'job-2').then(j => { openRepeatJob(j); return true; })"); page.wait_for_selector("#rp-form")
+    page.fill("#rp-count", "2"); page.wait_for_timeout(80)
+    check("v5.4: repeat lists the new dates", page.locator("#rp-list .cat-box").count() == 2 and "2 copies" in page.inner_text("#rp-go"))
+    page.click("#rp-go"); page.wait_for_timeout(400)
+    jazz = lambda: ev(page, "store.getAll('jobs').then(r => r.filter(j => j.title === 'Jazz Night').map(j => j.date).sort())")
+    j1 = jazz()
+    check("v5.4: weekly copies made a week apart", len(j1) == 3 and all((datetime.date.fromisoformat(j1[i + 1]) - datetime.date.fromisoformat(j1[i])).days == 7 for i in range(2)))
+    ev(page, "store.getDoc('jobs', 'job-2').then(j => { openRepeatJob(j); return true; })"); page.wait_for_selector("#rp-form")
+    page.fill("#rp-count", "3"); page.click("#rp-go"); page.wait_for_timeout(400)
+    check("v5.4: repeating again skips dates already there", len(jazz()) == 4)
+    ev(page, "store.getDoc('jobs', 'job-2').then(j => { openRepeatJob(j); return true; })"); page.wait_for_selector("#rp-form")
+    page.select_option("#rp-mode", "pick"); page.fill("#rp-date", (datetime.date.today() + datetime.timedelta(days=5)).isoformat()); page.click("#rp-add")
+    page.fill("#rp-date", (datetime.date.today() + datetime.timedelta(days=6)).isoformat()); page.click("#rp-add"); page.wait_for_timeout(80)
+    page.click("#rp-go"); page.wait_for_timeout(400)
+    check("v5.4: repeat on picked dates", len(jazz()) == 6)
+    # recall: a new show named like a past one fills in its details
+    ev(page, f"openJobEditor(null, {{ kind: 'show', date: '{(datetime.date.today() + datetime.timedelta(days=20)).isoformat()}' }})"); page.wait_for_selector("#je-form")
+    combo_pick(page, "#je-title", "Welcome", "Welcome Concert 2026")
+    check("v5.4: picking a past show fills its times, venue and manpower", "LT1" in page.inner_text("#je-venue-chips") and page.input_value("#je-start") != ""
+          and page.locator("#je-mp [data-mp-role]").count() == 3)
+    page.fill("#je-date", (datetime.date.today() + datetime.timedelta(days=21)).isoformat()); page.fill("#je-start", "0900"); page.fill("#je-notes", "Changed note")
+    page.click("#je-venue-chips [data-vp-rm='0']"); page.fill("#je-venue", "Studio 4"); page.press("#je-venue", "Tab"); page.fill("#je-title", "Welcome Concert 2026 (Day 2)")
+    check("v5.4: everything recalled can be changed", "Studio 4" in page.inner_text("#je-venue-chips") and "LT1" not in page.inner_text("#je-venue-chips")
+          and page.input_value("#je-notes") == "Changed note" and page.locator("#je-mp [data-mp-role]").first.is_enabled())
+    page.click("#dyn-modal [data-close]"); page.wait_for_timeout(100)
+    # several venues on one show
+    check("v5.4: venues combine (list, range, mixed, other names)", ev(page, "[fmtVenues(['Studio 1','Studio 2','Studio 5']), fmtVenues(['Studio 3','Studio 1','Studio 2']), fmtVenues(['Studio 5','Studio 1','Studio 3','Studio 2']), fmtVenues(['Studio 2','Gallery 3','Studio 1']), fmtVenues(['Main Hall','Studio 1'])].join('|')")
+          == "Studio 1, 2, 5|Studio 1-3|Studio 1-3, 5|Studio 1, 2, Gallery 3|Main Hall, Studio 1")
+    check("v5.4: combined venue keeps the first studio's colour", ev(page, "venueColor('Studio 1-3, 5') === venueColor('Studio 1') && venueColor('Studio 1, 2, 5') === venueColor('Studio 1')"))
+    ev(page, f"openJobEditor(null, {{ kind: 'show', date: '{(datetime.date.today() + datetime.timedelta(days=22)).isoformat()}' }})"); page.wait_for_selector("#je-form")
+    page.fill("#je-title", "Studio Workshop"); page.fill("#je-start", "1000"); page.fill("#je-end", "1200")
+    for v in ["Studio 1", "Studio 2", "Studio 5"]:
+        page.fill("#je-venue", v); page.press("#je-venue", "Tab"); page.wait_for_timeout(60)
+    check("v5.4: three venue chips and the combined text", page.locator("#je-venue-chips .cat-box").count() == 3 and "Studio 1, 2, 5" in page.inner_text("#je-venue-chips"))
+    page.click("#je-venue-chips [data-vp-rm='1']"); page.fill("#je-venue", "Studio 2"); page.click("#je-form button[type=submit]"); page.wait_for_timeout(400)
+    ws = ev(page, "store.getAll('jobs').then(r => r.find(j => j.title === 'Studio Workshop'))")
+    check("v5.4: show saves venues list and combined venue text", ws and ws["venue"] == "Studio 1, 2, 5" and ws["venues"] == ["Studio 1", "Studio 5", "Studio 2"])
+    check("v5.4: studios used are added to the venue list", ev(page, "['Studio 1','Studio 2','Studio 5'].every(v => settings.venues.list.includes(v))"))
+    # auto sign-out (Admin set 10 minutes above)
+    ev(page, "localStorage.setItem('sb_last_active', String(Date.now() - 9.5 * 60000)); idleMem = 0; checkIdle(); true")
+    check("v5.4: warning shows a minute before sign-out", page.is_visible("#idle-warn") and page.is_visible("#idle-stay"))
+    ev(page, "document.getElementById('idle-stay').click(); true"); page.wait_for_timeout(100)
+    check("v5.4: Stay signed in keeps the session", not page.is_visible("#idle-warn") and page.is_visible("#app-screen"))
+    ev(page, "localStorage.setItem('sb_last_active', String(Date.now() - 9.5 * 60000)); idleMem = 0; checkIdle(); true")
+    page.mouse.move(200, 300); page.mouse.move(260, 320); page.wait_for_timeout(100)
+    check("v5.4: any activity clears the warning", not page.is_visible("#idle-warn"))
+    ev(page, "localStorage.setItem('sb_last_active', String(Date.now() - 11 * 60000)); idleMem = 0; checkIdle(); true")
+    page.wait_for_selector("#login-screen:not(.hidden)", timeout=5000)
+    check("v5.4: idle too long signs out with a message", "no activity" in page.inner_text("#auth-info"))
+    login(page, "coadmin@showbase.com", stay=True); page.wait_for_timeout(300)
+    check("v5.4: a fresh sign-in isn't signed out straight away", page.is_visible("#app-screen"))
+
+    # ================= v5.6: frozen top bars + each page remembers its scroll =================
+    spacer = "(() => { const v = document.querySelector('.view:not(.hidden)'); if (!document.getElementById('spacer56-' + currentView)) { const d = document.createElement('div'); d.id = 'spacer56-' + currentView; d.style.height = '2600px'; v.appendChild(d); } return true; })()"
+    for vp, label in (({"width": 1280, "height": 620}, "computer"), ({"width": 390, "height": 760}, "phone")):
+        page.set_viewport_size(vp); page.wait_for_timeout(200)
+        ev(page, "switchView('catalogue')"); page.wait_for_timeout(300); ev(page, spacer)
+        ev(page, "setScrollY(500)"); page.wait_for_timeout(250)
+        r = ev(page, "(() => { const b = document.querySelector('#view-catalogue .view-head').getBoundingClientRect(), f = document.getElementById('search-input').getBoundingClientRect(), t = document.querySelector('.topbar').getBoundingClientRect(); return { head: b.top, tb: t.bottom, fTop: f.top, fBot: f.bottom, vh: innerHeight, y: getScrollY() }; })()")
+        top = r["tb"] if label == "phone" else 0
+        check(f"v5.6 {label}: catalogue title row + Import/Export stay frozen at the top", r["y"] >= 400 and abs(r["head"] - top) <= 2)
+        check(f"v5.6 {label}: search box stays visible below it", r["fTop"] >= top and r["fBot"] < r["vh"] / 2)
+        for v in ("rack", "check", "shows", "logs", "maintenance", "availability", "events"):
+            ev(page, f"switchView('{v}')"); page.wait_for_timeout(250); ev(page, spacer)
+            ev(page, "setScrollY(500)"); page.wait_for_timeout(200)
+            tp = ev(page, "(() => { const e = document.querySelector('.view:not(.hidden) .stick'); return e ? e.getBoundingClientRect().top : null; })()")
+            check(f"v5.6 {label}: {v} top bar frozen", tp is not None and abs(tp - top) <= 2)
+        # back to the catalogue: same place; after 10+ minutes away: top
+        ev(page, "switchView('catalogue')"); page.wait_for_timeout(250); ev(page, "setScrollY(520)"); page.wait_for_timeout(150)
+        ev(page, "switchView('maintenance')"); page.wait_for_timeout(200)
+        ev(page, "switchView('catalogue')"); page.wait_for_timeout(400)
+        check(f"v5.6 {label}: coming back keeps the place on the page", abs(ev(page, "getScrollY()") - 520) <= 3)
+        ev(page, "switchView('maintenance')"); page.wait_for_timeout(200)
+        ev(page, "viewScroll.catalogue.at -= 11 * 60 * 1000; switchView('catalogue')"); page.wait_for_timeout(400)
+        check(f"v5.6 {label}: away more than 10 minutes starts at the top", ev(page, "getScrollY()") == 0)
+        ev(page, "document.querySelectorAll('[id^=spacer56-]').forEach(e => e.remove())")
+    page.set_viewport_size({"width": 1440, "height": 950})
 
     check("no console / page errors, no native dialogs", not errors)
     if errors:

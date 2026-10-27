@@ -732,3 +732,26 @@ input[data-combo]:not([readonly]):not(:disabled) { background-image: linear-grad
 .vp-chips { margin-bottom: .35rem; align-items: center; }
 .vp-chips:empty { display: none; }
 .vp-as { margin-left: .2rem; }
+
+/* v5.6 frozen top bar: the title row, search and filters of each page stay put while the page scrolls.
+   --stick-top = height of the phone top bar (0 on a computer); --stick-h = height of the page's own frozen bar (set in shell.js). */
+:root { --stick-pad: 1.8rem; }   /* the page area's top padding on a computer: sticky offsets count from inside it */
+.stick { position: sticky; top: calc(var(--stick-top, 0px) - var(--stick-pad)); z-index: 20; background: var(--bg); padding: .45rem 0 .15rem; }
+.stick .view-head { margin-bottom: .7rem; }
+.stick .filter-bar { margin-bottom: .5rem; }
+.stick-sub { position: sticky; top: calc(var(--stick-top, 0px) - var(--stick-pad) + var(--stick-h, 0px)); z-index: 19; background: var(--bg); padding: .45rem 0 .15rem; }
+.ev-top.stick { margin-bottom: 0; }
+@media (max-width: 900px) {
+    :root { --stick-pad: 0px; }
+    .stick .view-sub { display: none; }
+    .stick .view-head h1 { font-size: 1.1rem; }
+    .stick .view-head { gap: .4rem .8rem; align-items: center; margin-bottom: .5rem; }
+    .stick .toolbar .btn, .stick .toolbar .edit-toggle { padding-top: .35rem; padding-bottom: .35rem; }
+    /* one scrolling row for filters and chips so the frozen bar stays short */
+    .stick .filter-bar, .stick-sub, .filter-bar.stick-sub { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+    .stick .filter-bar > *, .stick-sub > * { flex: 0 0 auto; }
+    .stick .filter-input, .stick-sub .filter-input { flex: 0 0 min(15rem, 62vw); }
+    .stick .sub-tabs { margin-bottom: .4rem; }
+}
+.view-head.stick { margin-bottom: 0; padding-bottom: .6rem; }
+.filter-bar.stick-sub { margin-bottom: .5rem; }

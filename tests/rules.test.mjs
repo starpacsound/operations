@@ -54,6 +54,11 @@ await env.withSecurityRulesDisabled(async ctx => {
     await put("users/pend", { ...prof("pend@x.com", "Member"), status: "pending" });
     await put("users/tmp", prof("tmp@x.com", "Member", { mustChangePassword: true }));
     await put("users/tmp2", prof("tmp2@x.com", "Member"));
+    // v5.4 Admin tools handed to Co-Admins
+    await put("users/coCond", prof("cocond@x.com", "Co-Admin", { perm: { ...CO, admin: { conditions: true, resetPw: false } } }));
+    await put("users/coPw", prof("copw@x.com", "Co-Admin", { perm: { ...CO, avail: { view: true, edit: true, viewAll: false, book: false }, admin: { conditions: false, resetPw: true } } }));
+    await put("users/memTool", prof("memtool@x.com", "Member", { perm: { ...MEM, admin: { conditions: true, resetPw: true } } }));
+    await put("users/mem3", prof("mem3@x.com", "Member"));
     await put("settings/app", { appName: "Showbase", logo: "" });
     await put("settings/venues", { list: ["LT1", "The Arc"] });
     await put("crewRoles/all", { roles: { mem: ["SE", "ST"] }, updatedAt: "2026-10-01T00:00:00Z", updatedBy: "x" });
@@ -69,7 +74,17 @@ await env.withSecurityRulesDisabled(async ctx => {
     await put("maintenance/t2", { stage: "confirmed", assetId: "wl1", requestedByUid: "mem2" });
     await put("loans/L1", { status: "requested", requestedByUid: "mem", assigned: [] });
     await put("loans/L2", { status: "approved", requestedByUid: "mem", assigned: [{ assetId: "wl1" }] });
+    await put("loans/L3", { status: "collected", requestedByUid: "mem", assigned: [], returnDate: "", returnTbc: true, history: [] });
     await put("shows/S1", { status: "out", createdByUid: "mem", items: [{ name: "SM58", qty: 2, accounted: false }] });
+    // v5.3 job-linked sign-outs
+    const job = (crewUids) => ({ kind: "show", date: "2026-11-06", month: "2026-11", title: "J", start: "14:00", end: "17:00", venue: "LT1", manpower: [], crew: crewUids.map(u => ({ uid: u, name: u, role: "ST" })), crewUids });
+    await put("jobs/J3", job(["mem"]));
+    await put("jobs/J4", job(["mem", "mem2"]));
+    await put("jobs/J5", job(["mem"]));
+    const jshow = (jobId, crewUids, by) => ({ title: "J", titleLower: "j", showDate: "2026-11-06", venue: "LT1", jobId, crewUids, createdByUid: by, status: "out",
+        items: [{ name: "SM58", qty: 2, accounted: false }, { name: "XLR", qty: 4, accounted: false }], missingCount: 0, history: [] });
+    await put("shows/job_J4", jshow("J4", ["mem", "mem2"], "mem"));
+    await put("shows/job_J5", jshow("J5", [], "co"));
     await put("audits/R1", { status: "open", venue: "Mic Store", name: "Oct" });
     await put("audits/R0", { status: "closed", venue: "Warehouse", name: "Sep", summary: { total: 3, checked: 2 } });
     await put("discrepancies/d1", { status: "pending", byUid: "mem", assetId: "spk1", proposed: { itemLocation: "Bay B" } });
@@ -92,6 +107,7 @@ await t("admin edits role templates", assertSucceeds(setDoc(doc(as("admin2"), "s
 const pendingProfile = email => ({ email, displayName: "N", casualId: "C12345", role: "Member", status: "pending", isPrimary: false,
     perm: {}, viewCols: [], editCols: [], viewCats: [], editCats: [], createdAt: "now", updatedAt: "now" });
 await t("self sign-up as pending Member", assertSucceeds(setDoc(doc(as("newbie", "newbie@x.com"), "users/newbie"), pendingProfile("newbie@x.com"))));
+await t("full-time staff sign up with no Casual ID", assertSucceeds(setDoc(doc(as("ft", "ft@x.com"), "users/ft"), { ...pendingProfile("ft@x.com"), casualId: "" })));
 await t("self sign-up can't grant itself features", assertFails(setDoc(doc(as("evil", "evil@x.com"), "users/evil"), { ...pendingProfile("evil@x.com"), perm: { loans: { manage: true } } })));
 await t("can't sign up on the reserved username domain", assertFails(setDoc(doc(as("fake", "fake@showbase.local"), "users/fake"), pendingProfile("fake@showbase.local"))));
 await t("sign-up rejects a malformed Casual ID", assertFails(setDoc(doc(as("bad", "bad@x.com"), "users/bad"), { ...pendingProfile("bad@x.com"), casualId: "c 1<script>" })));
@@ -227,6 +243,15 @@ await t("member can't turn booking emails on", assertFails(setDoc(doc(mem, "sett
 await t("admin turns booking emails on", assertSucceeds(setDoc(doc(as("primary"), "settings/availability"), { emailOnBooking: true })));
 
 // ---------- shared venue list ----------
+// ---------- asset conditions ----------
+const condList = { list: [{ name: "Upgraded", short: "Upgr", color: "warn", retired: false }], updatedAt: "t", updatedBy: "a@x.com" };
+await t("admin saves the condition list", assertSucceeds(setDoc(doc(as("primary"), "settings/conditions"), condList)));
+await t("member reads the condition list", assertSucceeds(getDoc(doc(mem, "settings/conditions"))));
+await t("member can't change conditions", assertFails(setDoc(doc(mem, "settings/conditions"), condList)));
+await t("co-admin can't change conditions", assertFails(setDoc(doc(co, "settings/conditions"), condList)));
+await t("pending user can't read conditions", assertFails(getDoc(doc(as("pend"), "settings/conditions"))));
+await t("condition list can't carry other fields", assertFails(setDoc(doc(as("primary"), "settings/conditions"), { ...condList, x: 1 })));
+
 await t("member reads venues", assertSucceeds(getDoc(doc(mem, "settings/venues"))));
 await t("member adds a venue", assertSucceeds(setDoc(doc(mem, "settings/venues"), { list: ["LT1", "The Arc", "LT2"] }, { merge: true })));
 await t("member can't remove venues", assertFails(setDoc(doc(mem, "settings/venues"), { list: ["LT1"] }, { merge: true })));
@@ -387,6 +412,61 @@ await t("people: member can't read the active copy", assertFails(getDoc(doc(mem,
 await t("people: copy rejects extra fields", assertFails(setDoc(doc(admin2, "peopleCopy/all"), { rows: {}, mark: "", builtAt: "", n: 0, perm: {} })));
 await t("people: only the two copy names exist", assertFails(setDoc(doc(admin2, "peopleCopy/other"), { rows: {}, mark: "", builtAt: "", n: 0 })));
 await t("logs: Load older reads the next page", assertSucceeds(getDocs(query(collection(as("primary"), "logs"), where("at", "<", "2026-10-21"), orderBy("at", "desc"), limit(50)))));
+
+// ---------- v5.3: show sign-outs linked to a calendar job, shared with its crew ----------
+const newJobShow = (jobId, crewUids, by) => ({ title: "J", titleLower: "j", showDate: "2026-11-06", venue: "LT1", jobId, crewUids, createdByUid: by, status: "out",
+    items: [{ name: "SM58", qty: 1, accounted: false }], missingCount: 0, history: [] });
+const J4items = [{ name: "SM58", qty: 2, accounted: false }, { name: "XLR", qty: 4, accounted: false }];
+await t("job show: crew member creates the job's shared sign-out", assertSucceeds(setDoc(doc(mem, "shows/job_J1"), newJobShow("J1", ["mem", "co"], "mem"))));
+await t("job show: someone not on the crew can't create it", assertFails(setDoc(doc(mem2, "shows/job_J3"), newJobShow("J3", ["mem"], "mem2"))));
+await t("job show: id must be job_<jobId>", assertFails(setDoc(doc(mem, "shows/X1"), newJobShow("J3", ["mem"], "mem"))));
+await t("job show: crew list must match the job", assertFails(setDoc(doc(mem, "shows/job_J3"), newJobShow("J3", ["mem", "mem2"], "mem"))));
+await t("job show: a plain sign-out can't carry a crew list", assertFails(setDoc(doc(mem, "shows/S5"), { status: "out", createdByUid: "mem", venue: "LT1", items: [], crewUids: ["mem", "mem2"] })));
+await t("job show: second press can't overwrite the first", assertFails(setDoc(doc(as("co"), "shows/job_J1"), newJobShow("J1", ["mem", "co"], "co"))));
+await t("job show: teammate (not the creator) reads it", assertSucceeds(getDoc(doc(mem2, "shows/job_J4"))));
+await t("job show: crew lists their shared lists", assertSucceeds(getDocs(query(collection(mem2, "shows"), where("crewUids", "array-contains", "mem2"), where("showDate", ">=", "2026-10-01")))));
+await t("job show: can't list someone else's shared lists", assertFails(getDocs(query(collection(mem2, "shows"), where("crewUids", "array-contains", "mem")))));
+await t("job show: not on the crew, can't read it", assertFails(getDoc(doc(as("memAll"), "shows/job_J4"))));
+await t("job show: teammate adds gear", assertSucceeds(updateDoc(doc(mem2, "shows/job_J4"), { items: [...J4items, { name: "DI box", qty: 2, accounted: false }], updatedAt: "t", updatedBy: "mem2@x.com" })));
+await t("job show: teammate ticks an item back in", assertSucceeds(updateDoc(doc(mem2, "shows/job_J4"), { items: [{ ...J4items[0], accounted: true }, J4items[1], { name: "DI box", qty: 2, accounted: false }], updatedAt: "t" })));
+await t("job show: lines can't be dropped", assertFails(updateDoc(doc(mem2, "shows/job_J4"), { items: [J4items[0]] })));
+await t("job show: teammate can't rename it", assertFails(updateDoc(doc(mem2, "shows/job_J4"), { title: "Other" })));
+await t("job show: teammate can't add people to the crew list", assertFails(updateDoc(doc(mem2, "shows/job_J4"), { crewUids: ["mem", "mem2", "memAll"] })));
+await t("job show: crew member re-syncs the list's crew to the job", assertSucceeds(updateDoc(doc(mem, "shows/job_J5"), { crewUids: ["mem"], updatedAt: "t" })));
+await t("job show: booker removes someone from the job and the list together", (async () => {
+    const b = writeBatch(co);
+    b.update(doc(co, "jobs/J4"), { crew: [{ uid: "mem", name: "mem", role: "ST" }], crewUids: ["mem"] });
+    b.update(doc(co, "shows/job_J4"), { crewUids: ["mem"], updatedAt: "t" });
+    await assertSucceeds(b.commit());
+    await assertFails(getDoc(doc(mem2, "shows/job_J4")));
+})());
+await t("job show: removed teammate can't sign it in", assertFails(updateDoc(doc(mem2, "shows/job_J4"), { status: "in", signedInAt: "t", signedInBy: "x", missingCount: 0 })));
+await t("job show: teammate signs it in", assertSucceeds(updateDoc(doc(co, "shows/job_J1"), { status: "in", items: [], signedInAt: "now", signedInBy: "co@x.com", missingCount: 0, history: [] })));
+await t("job show: nothing changes once signed in", assertFails(updateDoc(doc(mem, "shows/job_J1"), { items: [{ name: "X", qty: 1 }] })));
+
+// ---------- v5.3: loan return date TBC ----------
+await t("loan TBC: member requests a loan with no return date", assertSucceeds(setDoc(doc(mem, "loans/L19"), { status: "requested", requestedByUid: "mem", assigned: [], returnDate: "", returnTbc: true, items: [] })));
+await t("loan TBC: someone else can't set the date", assertFails(updateDoc(doc(mem2, "loans/L3"), { returnDate: "2026-12-01", returnTbc: false, history: [] })));
+await t("loan TBC: borrower can't change anything else with it", assertFails(updateDoc(doc(mem, "loans/L3"), { returnDate: "2026-12-01", returnTbc: false, status: "returned" })));
+await t("loan TBC: date must be a real date", assertFails(updateDoc(doc(mem, "loans/L3"), { returnDate: "soon", returnTbc: false })));
+await t("loan TBC: borrower sets the return date later", assertSucceeds(updateDoc(doc(mem, "loans/L3"), { returnDate: "2026-12-01", returnTbc: false, history: [{ status: "collected" }] })));
+await t("loan TBC: once dated, the borrower can't move it again", assertFails(updateDoc(doc(mem, "loans/L3"), { returnDate: "2027-01-01", returnTbc: false })));
+
+// ---------- v5.4: Admin tools for chosen Co-Admins ----------
+const condList2 = { list: [{ name: "Upgraded", short: "Upgr", color: "orange", retired: false }], updatedAt: "t", updatedBy: "c@x.com" };
+await t("tools: Co-Admin with 'Edit asset conditions' saves the list", assertSucceeds(setDoc(doc(as("coCond"), "settings/conditions"), condList2)));
+await t("tools: Co-Admin without it can't", assertFails(setDoc(doc(as("coPw"), "settings/conditions"), condList2)));
+await t("tools: a Member ticked for it still can't", assertFails(setDoc(doc(as("memTool"), "settings/conditions"), condList2)));
+await t("tools: conditions right doesn't open branding", assertFails(setDoc(doc(as("coCond"), "settings/app"), { appName: "X" })));
+await t("tools: Co-Admin with 'Reset passwords' lists active people", assertSucceeds(getDocs(query(collection(as("coPw"), "users"), where("status", "==", "active")))));
+await t("tools: ... and reads the active people copy", assertSucceeds(getDoc(doc(as("coPw"), "peopleCopy/active"))));
+await t("tools: Co-Admin flags a member for a password reset", assertSucceeds(updateDoc(doc(as("coPw"), "users/mem3"), { mustChangePassword: true, tempPasswordSetAt: "t", tempPasswordSetBy: "copw@x.com" })));
+await t("tools: ... and can undo the flag if the reset fails", assertSucceeds(updateDoc(doc(as("coPw"), "users/mem3"), { mustChangePassword: false })));
+await t("tools: can't flag an Admin", assertFails(updateDoc(doc(as("coPw"), "users/admin2"), { mustChangePassword: true })));
+await t("tools: can't flag a pending sign-up", assertFails(updateDoc(doc(as("coPw"), "users/pend"), { mustChangePassword: true })));
+await t("tools: can't change anything else on the profile", assertFails(updateDoc(doc(as("coPw"), "users/mem3"), { mustChangePassword: true, role: "Co-Admin" })));
+await t("tools: Co-Admin without the right can't flag anyone", assertFails(updateDoc(doc(as("coCond"), "users/mem3"), { mustChangePassword: true })));
+await t("tools: a Member ticked for it can't flag anyone", assertFails(updateDoc(doc(as("memTool"), "users/mem3"), { mustChangePassword: true })));
 
 await t("disabled user loses access", (async () => {
     await env.withSecurityRulesDisabled(c => updateDoc(doc(c.firestore(), "users/co"), { status: "disabled" }));
