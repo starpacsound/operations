@@ -1301,6 +1301,14 @@ with sync_playwright() as p:
     check("v5.7 phone: asset / serial numbers aren't cut off, the table scrolls sideways", cut == 0 and sideways)
     page.set_viewport_size({"width": 1440, "height": 950})
 
+    # v5.8: sort by item space / item location
+    r = ev(page, """(() => { const it = [{id:'a',itemSpace:'Studio 2',itemLocation:'Rack B'},{id:'b',itemSpace:'Studio 1',itemLocation:'Rack Z'},{id:'c',itemSpace:'',itemLocation:'Rack A'},{id:'d',itemSpace:'Studio 1',itemLocation:'Rack C'}];
+        return [sortItems(it,'space_asc').map(x=>x.id).join(''), sortItems(it,'space_desc').map(x=>x.id).join(''), sortItems(it,'location_asc').map(x=>x.id).join(''), sortItems(it,'location_desc').map(x=>x.id).join('')]; })()""")
+    check("v5.8: sort by item space A -> Z (blank last, then location)", r[0] == "dbac")
+    check("v5.8: sort by item space Z -> A (blank still last)", r[1] == "abdc")
+    check("v5.8: sort by item location A -> Z", r[2] == "cadb")
+    check("v5.8: sort by item location Z -> A", r[3] == "bdac")
+    check("v5.8: the sort choices are in the Asset Catalogue menu", page.locator("#sort-order option[value=location_desc]").count() == 1)
     check("no console / page errors, no native dialogs", not errors)
     if errors:
         print("\n".join(errors[:10]))

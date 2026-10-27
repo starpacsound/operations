@@ -104,7 +104,18 @@ function getFiltered() {
 }
 const filtersActive = () => !!$("search-input").value.trim() || ["filter-category", "filter-location", "filter-condition", "filter-year"].some(id => $(id).value !== "ALL");
 
+// Space / location sorts: the models line up by the first space (or location) they sit in, and the rows inside a model by space then location.
+const PLACE_SORT = { space: ["itemSpace", "itemLocation"], location: ["itemLocation", "itemSpace"] };
+const placeText = (it, f) => { const v = dv(it[f]).trim(); return v === "N/A" ? "" : v; };
+function placeCompare(a, b, [first, second], d = 1) {
+    const A = placeText(a, first), B = placeText(b, first);
+    if (!A !== !B) return A ? -1 : 1;       // blanks last, either way round
+    return (sortCollator.compare(A, B) || sortCollator.compare(placeText(a, second), placeText(b, second))) * d;
+}
+
 function sortItems(items, sortKey) {
+    const place = PLACE_SORT[sortKey.split("_")[0]];
+    if (place) { const d = sortKey.endsWith("_desc") ? -1 : 1; return items.slice().sort((a, b) => placeCompare(a, b, place, d)); }
     const field = sortKey.startsWith("code") ? "code" : sortKey.startsWith("asset") ? "assetNo" : sortKey.startsWith("serial") ? "serialNo" : sortKey.startsWith("year") ? "yearOfPurchase" : "internalAssetNo";
     const desc = sortKey.endsWith("_desc");
     return items.slice().sort((a, b) => {
@@ -223,6 +234,12 @@ function renderCatalogue() {
         if (sortVal.startsWith("brand")) {
             const cmp = sortCollator.compare((groups[a][0].brand || "").trim(), (groups[b][0].brand || "").trim());
             if (cmp !== 0) return sortVal.endsWith("_desc") ? -cmp : cmp;
+        }
+        const place = PLACE_SORT[sortVal.split("_")[0]];
+        if (place) {
+            const d = sortVal.endsWith("_desc") ? -1 : 1, first = g => groups[g].slice().sort((x, y) => placeCompare(x, y, place, d))[0];
+            const cmp = placeCompare(first(a), first(b), place, sortVal.endsWith("_desc") ? -1 : 1);
+            if (cmp !== 0) return cmp;
         }
         return sortCollator.compare(a, b);
     });
