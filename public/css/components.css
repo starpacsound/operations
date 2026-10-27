@@ -783,3 +783,6 @@ input[data-combo]:not([readonly]):not(:disabled) { background-image: linear-grad
 .loan-body { padding: .7rem 1rem .9rem 2.3rem; display: flex; flex-direction: column; gap: .55rem; border-top: 1px solid var(--border-soft); }
 #loans-container .board-section .empty-state { padding: .7rem 1rem; }
 #loans-container .board-section { margin-bottom: 1.1rem; }
+.loan-group-body { padding: .5rem .6rem .1rem 1.6rem; border-top: 1px solid var(--border-soft); background: var(--surface-2); }
+.loan-group-body .asset-group { background: var(--surface); }
+.loan-recv-h { margin: .9rem 0 .3rem; font-size: var(--fs-sm); color: var(--text); }

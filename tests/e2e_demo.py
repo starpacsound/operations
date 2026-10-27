@@ -1252,6 +1252,41 @@ with sync_playwright() as p:
     ev(page, "document.getElementById('spacer57').remove(); setScrollY(0)")
     page.set_viewport_size({"width": 1440, "height": 950})
 
+    # same equipment + borrower + status + dates share one line
+    go(page, "loans"); page.wait_for_timeout(200)
+    ev(page, "(() => { const base = loans.find(l => l.status === 'collected') ; for (let i = 0; i < 3; i++) loans.push({ ...base, id: 'grp-test-' + i }); renderLoans(); })()"); page.wait_for_timeout(200)
+    grp = page.locator("#loans-container .loan-group")
+    check("v5.7: identical loans are grouped on one line", grp.count() >= 1 and "4 loans" in " ".join(grp.all_inner_texts()).lower())
+    grp.filter(has_text="4 loans").locator("[data-loan-toggle]").click(); page.wait_for_timeout(100)
+    check("v5.7: opening the group lists each loan with its buttons", page.locator("#loans-container .loan-group-body .loan-row").count() == 4 and page.locator("#loans-container .loan-group-body [data-loan=receive]").count() >= 1)
+    check("v5.7: group has Receive all for a loan manager", page.locator("#loans-container .loan-group [data-gact=receive]").count() >= 1 and "Receive all (4)" in page.locator("#loans-container .loan-group", has_text="4 loans").inner_text())
+    page.locator("#loans-container .loan-group", has_text="4 loans").locator("[data-gact=receive]").click(); page.wait_for_selector("#rm-form")
+    check("v5.7: Receive all opens one check-in for every loan", "Receive 4 returned loans" in page.inner_text("#dyn-modal") and page.locator("#rm-form .loan-recv-h").count() == 4)
+    page.click("#dyn-modal [data-close]"); page.wait_for_timeout(100)
+    ev(page, "(() => { const base = loans.find(l => l.status === 'collected' && !String(l.id).startsWith('grp-test-')); const k = loanGroupKey(base); loans.filter(l => loanGroupKey(l) === k).forEach(l => { l.requestedByUid = authUser.uid; }); renderLoans(); })()"); page.wait_for_timeout(150)
+    check("v5.7: the borrower sees Return all on their group", "Return all (4)" in page.locator("#loans-container .loan-group", has_text="4 loans").inner_text())
+    page.locator("#loans-container .loan-group", has_text="4 loans").locator("[data-gact=return]").click(); page.wait_for_selector("#dlg-form")
+    check("v5.7: Return all asks once for all of them", "Return all 4 loans" in page.inner_text("#dialog-host"))
+    page.click("#dlg-cancel"); page.wait_for_timeout(100)
+    ev(page, "loans = loans.filter(l => !String(l.id).startsWith('grp-test-')); renderLoans()")
+
+    # Receive all, end to end: two identical loans out on real units are closed in one go
+    go(page, "loans"); page.wait_for_timeout(150)
+    ev(page, """(async () => {
+        const free = inventory.filter(a => !isGeneral(a) && a.condition === 'Available').slice(0, 2);
+        const mk = (a, i) => ({ op: 'set', col: 'loans', id: 'rcv-test-' + i, data: { status: 'collected', source: 'catalogue', borrowerName: 'Receive Test Crew', requestedByName: 'Eugene', requestedBy: 'admin@showbase.com', requestedByUid: 'u-admin',
+            requestedAt: nowIso(), collectDate: today(), returnDate: addDays(3), items: [{ name: 'Receive test item', qty: 1 }], history: [],
+            assigned: [{ assetId: a.id, label: assetLabel(a), brand: a.brand || '', model: a.model || '', prevCondition: 'Available' }] } });
+        await commitOps(free.map(mk).concat(free.map(a => ({ op: 'update', col: 'inventory', id: a.id, data: { condition: 'On Loan' } }))));
+        return true; })()""")
+    page.wait_for_timeout(400)
+    g2 = page.locator("#loans-container .loan-group", has_text="Receive Test Crew")
+    check("v5.7: two identical loans on real units are grouped", g2.count() == 1 and "2 loans" in g2.inner_text().lower())
+    g2.locator("[data-gact=receive]").click(); page.wait_for_selector("#rm-form")
+    page.fill("#rm-note", "All back"); page.click("#rm-form button[type=submit]"); page.wait_for_timeout(500)
+    check("v5.7: Receive all closes every loan in the group", ev(page, "loans.filter(l => String(l.id).startsWith('rcv-test-') && l.status === 'returned').length") == 2
+          and ev(page, "inventory.filter(a => a.condition === 'On Loan' && loans.some(l => String(l.id).startsWith('rcv-test-') && (l.assigned || []).some(u => u.assetId === a.id))).length") == 0)
+
     # ================= v5.7: phone - frozen bars hold for the whole page; long asset numbers scroll sideways =================
     page.set_viewport_size({"width": 390, "height": 760}); page.wait_for_timeout(200)
     ev(page, "switchView('catalogue')"); page.wait_for_timeout(300)

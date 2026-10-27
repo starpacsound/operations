@@ -86,6 +86,36 @@ function loanCard(l, approver) {
     </div>`;
 }
 
+// v5.7: identical loans (same equipment, borrower, status and dates) share one line; click it to see each loan.
+const loanGroupKey = l => [l.status, loanItemsText(l), loanWho(l), l.collectDate || "", loanTbc(l) ? "TBC" : l.returnDate || "", isLoanOverdue(l) ? "late" : ""].join("|").toLowerCase();
+function loanGroups(list) {
+    const map = new Map();
+    list.forEach(l => { const k = loanGroupKey(l); if (!map.has(k)) map.set(k, []); map.get(k).push(l); });
+    return [...map.values()];
+}
+function loanGroup(g, approver) {
+    const l = g[0], key = "grp:" + loanGroupKey(l), open = loanOpen.has(key), overdue = isLoanOverdue(l);
+    const when = `Collect ${fmtDate(l.collectDate)} · Return ${loanTbc(l) ? "TBC" : fmtDate(l.returnDate)}`;
+    // whole-group buttons (v5.7): the borrower returns them all at once; a loan manager receives them all at once
+    const acts = [], gk = esc(loanGroupKey(l));
+    if (l.status === "collected" && g.every(loanMine)) acts.push(`<button type="button" class="btn btn-primary btn-sm" data-loan-group="${gk}" data-gact="return">Return all (${g.length})</button>`);
+    if (approver && ["collected", "returnRequested"].includes(l.status)) acts.push(`<button type="button" class="btn btn-ok btn-sm" data-loan-group="${gk}" data-gact="receive">Receive all (${g.length})…</button>`);
+    return `<div class="asset-group loan-row loan-group ${overdue ? "overdue" : ""}">
+        <div class="group-head ${open ? "open" : ""}" data-loan-toggle="${esc(key)}" role="button" tabindex="0" aria-expanded="${open}">
+            <div class="group-title">
+                <span class="chev ${open ? "open" : ""}">▶</span>
+                <span class="group-name">${esc(loanItemsText(l))}</span>
+                <span class="tag">${g.length} loans</span>
+                <span class="group-desc">For <b>${esc(loanWho(l))}</b></span>
+            </div>
+            <div class="group-badges"><span class="pill qty loan-when">${esc(when)}</span>
+                <span class="st st-${overdue ? "overdue" : l.status}">${overdue ? "Overdue" : LOAN_STATUS[l.status] || l.status}</span>
+                ${acts.length ? `<span class="loan-acts">${acts.join("")}</span>` : ""}</div>
+        </div>
+        ${open ? `<div class="loan-group-body">${g.map(x => loanCard(x, approver)).join("")}</div>` : ""}
+    </div>`;
+}
+
 function renderLoans() {
     const host = $("loans-container");
     if (!host || !profile) return;
@@ -100,7 +130,7 @@ function renderLoans() {
         && (!q || lc([loanItemsText(l), loanWho(l), l.requestedByName, l.requestedBy, l.reason, l.approveNote, LOAN_STATUS[l.status], (l.assigned || []).map(u => `${u.label} ${u.assetNo || ""}`).join(" ")].join(" ")).includes(q));
     const section = (title, desc, list, emptyText) => filtering && !list.length ? "" : `<section class="board-section">
         <div class="board-head"><h3>${title}</h3><span class="count">${list.length}</span>${desc ? `<p class="muted small">${desc}</p>` : ""}</div>
-        ${list.length ? `<div class="loan-list">${list.map(l => loanCard(l, approver)).join("")}</div>` : `<div class="empty-state">${emptyText}</div>`}
+        ${list.length ? `<div class="loan-list">${loanGroups(list).map(g => g.length > 1 ? loanGroup(g, approver) : loanCard(g[0], approver)).join("")}</div>` : `<div class="empty-state">${emptyText}</div>`}
     </section>`;
     const none = `<div class="empty-state">No loans match${q ? ` “${esc(q)}”` : ""}. <button type="button" class="link-btn" onclick="clearLoanFilters()">Clear search</button></div>`;
     let html;
@@ -131,6 +161,11 @@ function clearLoanFilters() {
 }
 
 $("loans-container").addEventListener("click", e => {
+    const gb = e.target.closest("[data-loan-group]");
+    if (gb) {
+        const list = loans.filter(l => loanGroupKey(l) === gb.dataset.loanGroup);
+        return list.length ? (gb.dataset.gact === "return" ? requestReturnMany(list) : openLoanReceiveMany(list)) : undefined;
+    }
     const b = e.target.closest("[data-loan]");
     if (!b) {
         const t = e.target.closest("[data-loan-toggle]");
@@ -353,6 +388,62 @@ async function requestReturn(l) {
         ]);
         toast("Return started - the team will check it in");
     } catch (er) { toast(friendlyError(er), "err"); }
+}
+
+// Several identical loans at once (the group buttons).
+async function requestReturnMany(list) {
+    const note = await uiConfirm({ title: `Return all ${list.length} loans?`, confirmText: "Start return",
+        message: `${loanItemsText(list[0])} · ${plural(list.length, "loan")} for ${loanWho(list[0])}\nHand them back to the team. They'll check each item in.`,
+        input: { label: "Anything to flag? (optional)", placeholder: "e.g. One cable is frayed" } });
+    if (note === false) return;
+    const ops = list.map(l => ({ op: "update", col: "loans", id: l.id, data: { status: "returnRequested", returnRequestedAt: nowIso(), returnNote: note || "", history: loanHist(l, "returnRequested", note) } }));
+    ops.push(makeLog("Loan return started", { label: `${loanItemsText(list[0])} × ${list.length} loans` }, [], note || "", { ticketId: list[0].id }));
+    try { await commitOps(ops); toast(`Return started for ${plural(list.length, "loan")} - the team will check them in`); } catch (er) { toast(friendlyError(er), "err"); }
+}
+function openLoanReceiveMany(list) {
+    if (!can("loans", "manage")) return;
+    let n = 0;
+    const rows = list.map((l, li) => `<h4 class="loan-recv-h">${esc(loanItemsText(l))} · ${esc(loanWho(l))} <span class="muted small">(${li + 1} of ${list.length})</span></h4>` +
+        ((l.assigned || []).map(u => {
+            const a = assetById(u.assetId), i = n++;
+            return `<div class="fulfil-line" data-li="${li}" data-unit="${i}">
+                <h4>${esc(u.label)} <span class="muted small">${esc(u.brand)} ${esc(u.model)}${u.serialNo ? ` · S/N ${esc(u.serialNo)}` : ""}</span>${a ? "" : `<span class="warn-text">no longer in inventory</span>`}</h4>
+                <div class="form-grid cols-3">
+                    <div class="field"><label for="rm-cond-${i}">Condition</label><select id="rm-cond-${i}" ${a ? "" : "disabled"}>${condOptions(u.prevCondition && u.prevCondition !== "On Loan" ? u.prevCondition : "Available")}</select></div>
+                    ${placeFields(`rm${i}`, a ? dv(a.itemSpace) : "", a ? dv(a.itemLocation) : "")}
+                </div></div>`;
+        }).join("") || `<p class="muted small">No units were assigned.</p>`)).join("");
+    showModal({
+        title: `Receive ${list.length} returned loans`, size: "lg", body: `
+        <form id="rm-form" class="form-stack" novalidate>
+            <p class="muted">${esc(loanItemsText(list[0]))} · ${plural(list.length, "loan")} for <b>${esc(loanWho(list[0]))}</b>. Check each unit's condition and place, then close them all.</p>
+            ${rows}
+            <div class="field"><label for="rm-note">Check-in notes <span class="hint">optional, applies to all</span></label><input type="text" id="rm-note" placeholder="e.g. All good, cables coiled"></div>
+            <p id="rm-error" class="error-msg hidden"></p>
+            <div class="form-actions"><button type="button" class="btn btn-ghost" data-close>Cancel</button><button type="submit" class="btn btn-ok">Check in &amp; close ${list.length} loans</button></div>
+        </form>`,
+        onMount(root) {
+            root.querySelector("#rm-form").addEventListener("submit", async e => {
+                e.preventDefault();
+                const note = root.querySelector("#rm-note").value.trim(), ops = [];
+                let k = 0;
+                list.forEach(l => {
+                    ops.push({ op: "update", col: "loans", id: l.id, data: { status: "returned", returnedAt: nowIso(), receivedBy: myEmail(), receiveNote: note, history: loanHist(l, "returned", note) } });
+                    (l.assigned || []).forEach(u => {
+                        const i = k++, a = assetById(u.assetId);
+                        if (!a) return;
+                        const m = wfAssetOps(a, { condition: root.querySelector(`#rm-cond-${i}`).value, itemSpace: root.querySelector(`#rm${i}-space`).value.trim(), itemLocation: root.querySelector(`#rm${i}-loc`).value.trim() }, "loans", l.id, "returned");
+                        ops.push(...m.ops, makeLog("Loan returned", a, m.changes, [l.requestedByName || l.requestedBy, note].filter(Boolean).join(" · "), { ticketId: l.id }));
+                    });
+                });
+                try {
+                    await commitOps(ops);
+                    closeDynModal();
+                    toast(`${plural(list.length, "loan")} closed - units are back in the catalogue`);
+                } catch (er) { const p = root.querySelector("#rm-error"); p.textContent = friendlyError(er); p.classList.remove("hidden"); }
+            });
+        }
+    });
 }
 
 // ---------- Return date TBC -> a real date (manager or borrower) ----------
