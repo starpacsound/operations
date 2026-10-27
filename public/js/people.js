@@ -13,6 +13,8 @@
 //   because "changed since" can't see a profile that no longer matches.
 // =====================================================================
 const People = (() => {
+    // Copies saved before this were taken by an older app that could save a partial list; they are rebuilt once.
+    const VALID_FROM = "2026-10-27T06:00:00.000Z";
     let canFix = () => false;       // the app sets this to isAdmin()
 
     // Add updatedAt to every users write except a lone lastSeen touch.
@@ -50,8 +52,8 @@ const People = (() => {
     // Admins: everyone. Bookers: active people only (the rules only let them read those).
     function watch(store, opts, cb, onErr) {
         return Bundles.watchCopy(store, opts.all
-            ? { copyCol: "peopleCopy", copyId: "all", liveCol: "users", canWrite: true }
-            : { copyCol: "peopleCopy", copyId: "active", liveCol: "users", where: [["status", "==", "active"]], canWrite: true }, cb, onErr);
+            ? { copyCol: "peopleCopy", copyId: "all", liveCol: "users", canWrite: true, validFrom: VALID_FROM }
+            : { copyCol: "peopleCopy", copyId: "active", liveCol: "users", where: [["status", "==", "active"]], canWrite: true, validFrom: VALID_FROM }, cb, onErr);
     }
 
     return { stamp, afterCommit, watch, setCanFix(fn) { canFix = fn; } };

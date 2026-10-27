@@ -371,11 +371,12 @@ const Bundles = (() => {
         const full = () => {
             if (fullMode || stopped) return;
             fullMode = true; stopInner();
-            inner = store.watchCol(spec.liveCol, where.length ? { where } : {}, rows => { cb(rows); saveCopy(rows); }, onErr);
+            // Save only what the server confirmed: a first answer from this browser's own memory can hold just a few profiles.
+            inner = store.watchCol(spec.liveCol, where.length ? { where } : {}, (rows, fromCache) => { cb(rows); if (!fromCache) saveCopy(rows); }, onErr);
         };
         const outer = store.watchDoc(spec.copyCol, spec.copyId, copy => {
             if (stopped || fullMode) return;
-            const fresh = copy && copy.builtAt && (Date.now() - Date.parse(copy.builtAt) < MAX_AGE_MS);
+            const fresh = copy && copy.builtAt && (Date.now() - Date.parse(copy.builtAt) < MAX_AGE_MS) && (!spec.validFrom || copy.builtAt >= spec.validFrom);
             if (!fresh) return full();
             base = copy.rows || {};
             const since = copy.mark ? new Date(Date.parse(copy.mark) - SKEW_MS).toISOString() : "";

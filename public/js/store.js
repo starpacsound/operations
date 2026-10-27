@@ -85,7 +85,8 @@ function createFirebaseStore() {
         },
         watchDoc: (col, id, cb, onErr) =>
             db.collection(col).doc(id).onSnapshot(s => cb(s.exists ? { id: s.id, ...s.data() } : null), onErr),
-        watchCol: (col, q, cb, onErr) => query(col, q).onSnapshot(s => cb(rows(s)), onErr),
+        // Second argument: true while the answer comes only from what this browser already holds (not yet confirmed by the server).
+        watchCol: (col, q, cb, onErr) => query(col, q).onSnapshot(s => cb(rows(s), s.metadata.fromCache), onErr),
         getAll: async (col, q) => rows(await query(col, q).get()),
         // How many docs match (1 read per 1,000 counted). Null where this SDK build can't count.
         async count(col, q) {
