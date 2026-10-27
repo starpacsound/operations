@@ -25,7 +25,7 @@ function assetCell(it, col, inline) {
         const editable = canEditCell(it, "condition");
         const opts = CONDITIONS.includes(it.condition) ? CONDITIONS : [...CONDITIONS, it.condition];
         return `<td><select class="cond-select ${condClass(it.condition)}" data-id="${esc(it.id)}" ${editable ? "" : "disabled"} aria-label="Condition of ${esc(assetLabel(it))}">
-            ${opts.map(o => `<option value="${esc(o)}" ${it.condition === o ? "selected" : ""}>${esc(o)}</option>`).join("")}</select></td>`;
+            ${opts.map(o => `<option value="${esc(o)}" ${it.condition === o ? "selected" : ""}>${esc(o)}</option>`).join("")}</select>${faultTag(it)}</td>`;
     }
     const editable = inline && canEditCell(it, col.key);
     if (col.key === "yearOfPurchase") {
@@ -320,6 +320,7 @@ function renderEditToggle() {
 // ---------- Condition changes (with the On Loan hand-off) ----------
 // Picking "Faulty" opens the same fault report as the ⚠ button, so a maintenance ticket is made too.
 // (Not when the asset already has an open ticket, or the person can't report faults.)
+const faultTag = it => { const f = faultNote(it); return f ? `<span class="fault-tag ${f}">${f === "pending" ? "Awaiting confirmation" : "Confirmed faulty"}</span>` : ""; };
 const faultReportFirst = it => it && it.condition !== "Faulty" && can("maintenance", "submit") && !tickets.some(t => t.assetId === it.id);
 function openFaultFor(it) {
     openLogMaintenance(it.id, { fromFaulty: true, onClose: () => requestRender(true) });

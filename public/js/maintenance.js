@@ -272,9 +272,18 @@ function newTicketOps(a, v, mode) {
     };
     const ops = [{ op: "set", col: "maintenance", id, data: ticket }];
     let changes = [];
-    if (mode !== "request") {
+    if (mode === "request") {
+        // The asset shows Faulty straight away, marked "awaiting confirmation"; a rejected report puts the old condition back.
+        const patch = { faultStatus: "pending" };
+        if (a.condition !== "Faulty") { patch.condition = "Faulty"; patch.condBefore = a.condition || "Available"; }
+        if (!a.faultStatus) {
+            const m = wfAssetOps(a, patch, "maintenance", id, "request");
+            changes = m.changes;
+            ops.push(...m.ops);
+        }
+    } else {
         const patch = {};
-        if (mode === "confirm") patch.condition = v.requestedCondition || "Faulty";
+        if (mode === "confirm") { patch.condition = v.requestedCondition || "Faulty"; patch.faultStatus = "confirmed"; patch.condBefore = ""; }
         else if (v.requestedCondition) patch.condition = v.requestedCondition;
         if (v.newSpace) patch.itemSpace = v.newSpace;
         if (v.newLocation) patch.itemLocation = v.newLocation;
@@ -318,7 +327,8 @@ function openVerifyModal(t) {
                 const errEl = root.querySelector("#vf-error");
                 if (!notes) { errEl.textContent = "Add verification notes."; errEl.classList.remove("hidden"); return; }
                 const cond = root.querySelector("#vf-cond").value;
-                const patch = { condition: cond, itemSpace: root.querySelector("#vf-space").value.trim(), itemLocation: root.querySelector("#vf-loc").value.trim() };
+                const patch = { condition: cond, itemSpace: root.querySelector("#vf-space").value.trim(), itemLocation: root.querySelector("#vf-loc").value.trim(),
+                    faultStatus: cond === "Available" ? "" : "confirmed", condBefore: "" };
                 const m = wfAssetOps(a, patch, "maintenance", t.id, "confirmed");
                 try {
                     await commitOps([
@@ -340,12 +350,19 @@ async function rejectTicket(t) {
     const reason = await uiConfirm({ title: `Reject fault report for ${t.assetLabel}?`, confirmText: "Reject report", danger: true,
         input: { label: "Reason (recorded in the log)", required: true, requiredMsg: "Give a short reason." } });
     if (!reason) return;
+    // Put the condition back to what it was before the report, unless it has moved on or another report is still open.
+    const a = ticketAsset(t);
+    const others = tickets.some(x => x.id !== t.id && x.assetId === t.assetId && x.stage === "request");
+    const back = a && !others && a.faultStatus === "pending"
+        ? wfAssetOps(a, { condition: a.condition === "Faulty" && a.condBefore ? a.condBefore : a.condition, faultStatus: "", condBefore: "" }, "maintenance", t.id, "rejected")
+        : { ops: [], changes: [] };
     try {
         await commitOps([
             { op: "update", col: "maintenance", id: t.id, data: {
                 stage: "rejected", rejectReason: reason, rejectedBy: myEmail(), rejectedAt: nowIso(),
                 history: [...(t.history || []), histEntry("rejected", reason)] } },
-            makeLog("Maintenance request rejected", ticketAsset(t) || { label: t.assetLabel }, [], reason, { ticketId: t.id })
+            ...back.ops,
+            makeLog("Maintenance request rejected", a || { label: t.assetLabel }, back.changes, reason, { ticketId: t.id })
         ]);
         toast("Fault report rejected");
     } catch (er) { toast(friendlyError(er), "err"); }
@@ -376,7 +393,7 @@ function openSendRepairModal(t) {
                 const errEl = root.querySelector("#sr-error");
                 if (!vendor || !date) { errEl.textContent = "Vendor name and date sent are required."; errEl.classList.remove("hidden"); return; }
                 const notes = root.querySelector("#sr-notes").value.trim();
-                const m = wfAssetOps(a, { condition: "On Repair" }, "maintenance", t.id, "repairing");
+                const m = wfAssetOps(a, { condition: "On Repair", faultStatus: "", condBefore: "" }, "maintenance", t.id, "repairing");
                 try {
                     await commitOps([
                         { op: "update", col: "maintenance", id: t.id, data: {
@@ -426,7 +443,8 @@ function openResolveModal(t) {
                 const cond = root.querySelector("#rs-cond").value;
                 const patch = {
                     condition: cond, itemSpace: root.querySelector("#rs-space").value.trim(), itemLocation: root.querySelector("#rs-loc").value.trim(),
-                    serialNo: root.querySelector("#rs-serial").value.trim(), remarks: root.querySelector("#rs-remarks").value.trim() || "-"
+                    serialNo: root.querySelector("#rs-serial").value.trim(), remarks: root.querySelector("#rs-remarks").value.trim() || "-",
+                    faultStatus: "", condBefore: ""
                 };
                 const m = wfAssetOps(a, patch, "maintenance", t.id, "closed");
                 const cost = root.querySelector("#rs-cost").value.trim();

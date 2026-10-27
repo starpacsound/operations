@@ -1301,6 +1301,22 @@ with sync_playwright() as p:
     check("v5.7 phone: asset / serial numbers aren't cut off, the table scrolls sideways", cut == 0 and sideways)
     page.set_viewport_size({"width": 1440, "height": 950})
 
+    # v5.10: a fault report marks the asset Faulty at once; reject puts the old condition back; confirm keeps it
+    f10 = ev(page, "(() => { const a = inventory.find(x => x.condition === 'Available' && !tickets.some(t => t.assetId === x.id) && !isGeneral(x)); return { id: a.id, label: a.internalAssetNo }; })()")
+    ev(page, f"commitOps(newTicketOps(assetById({f10['id']!r}), {{ logType: 'Fault', requestedCondition: 'Faulty', maintDate: today(), newSpace: '', newLocation: '', faultDescription: 'v5.10 report' }}, 'request'))"); page.wait_for_timeout(300)
+    a10 = ev(page, f"assetById({f10['id']!r})")
+    check("v5.10: a fault report sets the asset to Faulty straight away, awaiting confirmation", a10["condition"] == "Faulty" and a10["faultStatus"] == "pending" and a10["condBefore"] == "Available")
+    check("v5.10: the catalogue shows 'Awaiting confirmation' under the condition", "Awaiting confirmation" in ev(page, f"faultTag(assetById({f10['id']!r}))"))
+    go(page, "maintenance"); page.wait_for_timeout(200)
+    tid10 = ev(page, f"tickets.find(t => t.assetId === {f10['id']!r} && t.stage === 'request').id")
+    page.locator(f"[data-act=reject][data-id='{tid10}']").click(); page.wait_for_selector("#dlg-input")
+    page.fill("#dlg-input", "tested fine"); page.click("#dlg-ok"); page.wait_for_timeout(300)
+    a10 = ev(page, f"assetById({f10['id']!r})")
+    check("v5.10: rejecting the report puts the old condition back", a10["condition"] == "Available" and not a10.get("faultStatus") and not a10.get("condBefore"))
+    ev(page, f"commitOps(newTicketOps(assetById({f10['id']!r}), {{ logType: 'Fault', requestedCondition: 'Faulty', maintDate: today(), newSpace: '', newLocation: '', faultDescription: 'v5.10 second' }}, 'request'))"); page.wait_for_timeout(300)
+    ev(page, f"commitOps(wfAssetOps(assetById({f10['id']!r}), {{ condition: 'Faulty', faultStatus: 'confirmed', condBefore: '' }}, 'maintenance', tickets.find(t => t.assetId === {f10['id']!r} && t.stage === 'request').id, 'confirmed').ops)"); page.wait_for_timeout(300)
+    check("v5.10: confirming shows 'Confirmed faulty' and a later condition change clears the flag", "Confirmed faulty" in ev(page, f"faultTag(assetById({f10['id']!r}))")
+          and ev(page, f"(() => {{ const r = wfAssetOps(assetById({f10['id']!r}), {{ condition: 'On Repair' }}, 'maintenance', 'x', 'repairing'); return r.ops[0].data.faultStatus === '' ; }})()"))
     # v5.8: sort by item space / item location
     r = ev(page, """(() => { const it = [{id:'a',itemSpace:'Studio 2',itemLocation:'Rack B'},{id:'b',itemSpace:'Studio 1',itemLocation:'Rack Z'},{id:'c',itemSpace:'',itemLocation:'Rack A'},{id:'d',itemSpace:'Studio 1',itemLocation:'Rack C'}];
         return [sortItems(it,'space_asc').map(x=>x.id).join(''), sortItems(it,'space_desc').map(x=>x.id).join(''), sortItems(it,'location_asc').map(x=>x.id).join(''), sortItems(it,'location_desc').map(x=>x.id).join('')]; })()""")

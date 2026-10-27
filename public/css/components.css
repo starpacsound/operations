@@ -35,6 +35,8 @@
 }
 .cond-select:disabled { cursor: default; opacity: .9; }
 .cond-select.locked { opacity: .5; }
+.fault-tag { display: block; margin-top: .2rem; font-size: .68rem; font-weight: 600; line-height: 1.2; color: var(--bad); }
+.fault-tag.pending { color: var(--warn); }
 
 /* ---------- Ops strip (Condition Mix + action tiles) ---------- */
 .ops-strip { display: contents; }   /* v5.7: the tiles scroll away; the condition bar + filters (#cat-sticky) freeze under the title row */

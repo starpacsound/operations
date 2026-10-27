@@ -162,6 +162,19 @@ await t("read-only co-admin can't edit inventory directly", assertFails(updateDo
 await t("workflow path can't change other fields", assertFails(updateDoc(doc(coRO, "inventory/spk1"), { model: "HACK", wfCol: "maintenance", wfRef: "t9", wfStep: "x:2" })));
 await t("workflow path needs a real document", assertFails(updateDoc(doc(coRO, "inventory/spk1"), { condition: "Sold", wfCol: "maintenance", wfRef: "nope", wfStep: "x:3" })));
 await t("member can't use the workflow path", assertFails(updateDoc(doc(mem, "inventory/spk1"), { condition: "Sold", wfCol: "maintenance", wfRef: "t1", wfStep: "x:5" })));
+// v5.10: a fault report marks the asset Faulty (awaiting confirmation) at once.
+{
+    const b = writeBatch(mem);
+    b.set(doc(mem, "maintenance/fm1"), { stage: "request", assetId: "spk1", requestedByUid: "mem" });
+    b.update(doc(mem, "inventory/spk1"), { condition: "Faulty", faultStatus: "pending", condBefore: "Available", wfCol: "maintenance", wfRef: "fm1", wfStep: "request:1" });
+    await t("fault report: member marks the asset Faulty together with their own report", assertSucceeds(b.commit()));
+}
+await t("fault report: only to Faulty", assertFails(updateDoc(doc(mem, "inventory/spk1"), { condition: "Sold", faultStatus: "pending", wfCol: "maintenance", wfRef: "fm1", wfStep: "request:2" })));
+await t("fault report: nothing else changes with it", assertFails(updateDoc(doc(mem, "inventory/spk1"), { condition: "Faulty", faultStatus: "pending", model: "HACK", wfCol: "maintenance", wfRef: "fm1", wfStep: "request:3" })));
+await t("fault report: must be the member's own report", assertFails(updateDoc(doc(mem, "inventory/spk1"), { condition: "Faulty", faultStatus: "pending", wfCol: "maintenance", wfRef: "t2", wfStep: "request:4" })));
+await t("fault report: member can't mark it confirmed", assertFails(updateDoc(doc(mem, "inventory/spk1"), { condition: "Faulty", faultStatus: "confirmed", wfCol: "maintenance", wfRef: "fm1", wfStep: "request:5" })));
+await t("fault report: another member can't use that report", assertFails(updateDoc(doc(as("mem2"), "inventory/spk1"), { condition: "Faulty", faultStatus: "pending", wfCol: "maintenance", wfRef: "fm1", wfStep: "request:6" })));
+await t("fault report: a verifier puts the condition back on reject", assertSucceeds(updateDoc(doc(as("verifier"), "inventory/spk1"), { condition: "Available", faultStatus: "", condBefore: "", wfCol: "maintenance", wfRef: "fm1", wfStep: "rejected:7" })));
 
 // ---------- loans ----------
 await t("member requests a loan", assertSucceeds(setDoc(doc(mem, "loans/L9"), { status: "requested", requestedByUid: "mem", assigned: [], items: [], borrowerName: "Choir" })));

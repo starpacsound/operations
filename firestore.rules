@@ -50,7 +50,7 @@ service cloud.firestore {
     // (wfCol / wfRef), that document must exist after the same commit, and the caller needs the
     // matching permission. wfStep changes on every step, so it always shows up as changed.
     function wfKeys() {
-      return ['condition', 'qty', 'itemSpace', 'itemLocation', 'serialNo', 'remarks',
+      return ['condition', 'qty', 'itemSpace', 'itemLocation', 'serialNo', 'remarks', 'faultStatus', 'condBefore',
               'wfCol', 'wfRef', 'wfStep', 'updatedAt', 'updatedBy'];
     }
     function wfCap(col) {
@@ -60,12 +60,30 @@ service cloud.firestore {
     }
     function isWorkflowWrite() {
       let d = request.resource.data;
-      return active()
-        && changed().hasOnly(wfKeys())
-        && changed().hasAll(['wfStep'])
+      let ch = changed();
+      return ch.hasAll(['wfStep'])
+        && ch.hasOnly(wfKeys())
         && d.wfCol in ['maintenance', 'loans', 'discrepancies']
+        && active()
         && wfCap(d.wfCol)
         && existsAfter(/databases/$(db)/documents/$(d.wfCol)/$(d.wfRef));
+    }
+
+    // v5.10: someone who can submit fault reports marks the asset Faulty (awaiting confirmation) together with their own
+    // report, nothing else. A Co-Admin's reject later puts the condition back (a normal workflow write).
+    function isFaultReport() {
+      let d = request.resource.data;
+      let ch = changed();
+      return d.get('faultStatus', '') == 'pending'
+        && d.condition == 'Faulty'
+        && ch.hasAll(['wfStep'])
+        && ch.hasOnly(['condition', 'faultStatus', 'condBefore', 'wfCol', 'wfRef', 'wfStep', 'updatedAt', 'updatedBy'])
+        && d.wfCol == 'maintenance'
+        && can('maintenance', 'submit')
+        && canSeeCat(resource.data.category)
+        && getAfter(/databases/$(db)/documents/maintenance/$(d.wfRef)).data.stage == 'request'
+        && getAfter(/databases/$(db)/documents/maintenance/$(d.wfRef)).data.requestedByUid == uid()
+        && getAfter(/databases/$(db)/documents/maintenance/$(d.wfRef)).data.assetId == resource.id;
     }
 
     // ---------- settings ----------
@@ -156,7 +174,8 @@ service cloud.firestore {
         && ((request.resource.data.get('kind', 'detailed') == 'general' && can('catalogue', 'addGeneral'))
             || (request.resource.data.get('kind', 'detailed') != 'general' && can('catalogue', 'addDetailed')));
 
-      allow update: if isAdmin()
+      allow update: if isFaultReport()
+        || isAdmin()
         || (active() && canSeeCat(resource.data.category) && canEditCat(resource.data.category)
             && changed().hasOnly(myEditCols())
             && canEditCat(request.resource.data.category))   // can't move an asset into a category you can't edit
