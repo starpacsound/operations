@@ -38,7 +38,9 @@ function assetCell(it, col, inline) {
             value="${esc(it.qty)}" aria-label="Quantity" ${editable ? "" : "readonly tabindex=\"-1\""}></td>`;
     }
     const cls = ["cell-input", col.strong ? "strong" : "", col.mono ? "mono" : "", inline && !editable ? "locked" : ""].join(" ");
-    return `<td><input class="${cls}" data-id="${esc(it.id)}" data-field="${col.key}" value="${esc(dv(it[col.key]))}"
+    // v5.7: long values (asset no, serial) widen their column, so the table scrolls sideways instead of cutting them off
+    const w = String(dv(it[col.key])).length;
+    return `<td><input class="${cls}" data-id="${esc(it.id)}" data-field="${col.key}" value="${esc(dv(it[col.key]))}" ${w > 9 ? `style="min-width:calc(${w}ch + 1rem)"` : ""}
         ${col.combo && editable ? `data-combo="${col.combo}" autocomplete="off"` : ""}
         placeholder="${editable ? esc(col.ph || "") : ""}" aria-label="${esc(col.label)}" ${editable ? "" : "readonly tabindex=\"-1\""}></td>`;
 }
@@ -121,8 +123,8 @@ function sortItems(items, sortKey) {
 let mixTab = "condition";
 
 function renderOpsStrip() {
-    const el = $("ops-strip");
-    if (!el || !profile) return;
+    const el = $("ops-mix"), tilesEl = $("ops-tiles");
+    if (!el || !tilesEl || !profile) return;
     const totalUnits = inventory.reduce((n, a) => n + units(a), 0) || 1;
     const shown = getFiltered().reduce((n, a) => n + units(a), 0);
     let bar, legend, hint;
@@ -182,6 +184,7 @@ function renderOpsStrip() {
     if (tiles.length < 4 && can("maintenance", "submit")) tiles.push(`<button type="button" class="ops-tile action" data-action="report"><span class="n">⚠</span><span class="l">Report a faulty item</span></button>`);
     if (tiles.length < 4 && can("loans", "request")) tiles.push(`<button type="button" class="ops-tile action" data-goto-act="loan"><span class="n">⇄</span><span class="l">Request a loan</span></button>`);
 
+    tilesEl.innerHTML = tiles.slice(0, 4).join("");
     el.innerHTML = `
         <div class="ops-mix">
             <div class="ops-mix-head">
@@ -194,8 +197,7 @@ function renderOpsStrip() {
             </div>
             <div class="cond-bar">${bar || `<span class="seg" style="flex:1"></span>`}</div>
             <div class="chip-row">${legend}</div>
-        </div>
-        <div class="ops-tiles">${tiles.slice(0, 4).join("")}</div>`;
+        </div>`;
 }
 
 // ---------- Catalogue table ----------

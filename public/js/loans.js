@@ -29,6 +29,7 @@ function bindTbcTick(root, tickSel, dateSel, after) {
         if (after) after();
     });
 }
+const loanOpen = new Set();   // loan rows opened to show details
 const loanMine = l => authUser && l.requestedByUid === authUser.uid;
 
 function loanCard(l, approver) {
@@ -54,14 +55,11 @@ function loanCard(l, approver) {
         else if (mine) actions.push(`<span class="muted small">Waiting for the team to check it back in</span>`);
     }
     if (canSetDate) actions.push(`<button type="button" class="btn btn-sm" data-loan="setdate" data-id="${esc(l.id)}">Set return date</button>`);
-    return `<article class="card ${overdue ? "overdue" : ""}">
-        <div class="card-top">
-            <div><div class="card-title">${esc(loanItemsText(l))}</div>
-                <div class="card-for">For <b>${esc(loanWho(l))}</b></div>
-                <div class="card-sub">${l.source === "catalogue" ? `Lent from the catalogue by ${esc(l.requestedByName || l.requestedBy)} · ${fmtDateTime(l.requestedAt)}`
-                    : `${approver || !mine ? `Requested by ${esc(l.requestedByName || l.requestedBy)} · ` : "Requested "}${fmtDateTime(l.requestedAt)}`}</div></div>
-            <span class="st st-${overdue ? "overdue" : l.status}">${overdue ? "Overdue" : LOAN_STATUS[l.status] || l.status}</span>
-        </div>
+    const open = loanOpen.has(l.id);
+    const when = `Collect ${fmtDate(l.collectDate)} · Return ${loanTbc(l) ? "TBC" : fmtDate(l.returnDate)}`;
+    const body = !open ? "" : `<div class="loan-body">
+        <div class="card-sub">${l.source === "catalogue" ? `Lent from the catalogue by ${esc(l.requestedByName || l.requestedBy)} · ${fmtDateTime(l.requestedAt)}`
+            : `${approver || !mine ? `Requested by ${esc(l.requestedByName || l.requestedBy)} · ` : "Requested "}${fmtDateTime(l.requestedAt)}`}</div>
         <dl class="kv">
             <dt>Collect</dt><dd>${fmtDate(l.collectDate)}</dd>
             <dt>Return</dt><dd>${loanTbc(l) ? `<b>TBC</b>${isLoanTbcLong(l) ? ` <span class="warn-text small">out over 30 days</span>` : ""}` : `${fmtDate(l.returnDate)} <span class="muted">(${plural(nights, "day")})</span>`}</dd>
@@ -71,8 +69,21 @@ function loanCard(l, approver) {
         </dl>
         ${showUnits ? `<div class="unit-list">${l.assigned.map(u => `<div><b>${esc(u.label)}</b>${canViewCol("assetNo") && u.assetNo ? `<span class="mono">${esc(u.assetNo)}</span>` : ""}${canViewCol("serialNo") && u.serialNo ? `<span class="mono">S/N ${esc(u.serialNo)}</span>` : ""}</div>`).join("")}</div>` : ""}
         ${step >= 0 ? `<div class="timeline">${LOAN_FLOW.map((s, i) => `<span class="${i <= step ? "on" : ""}">${esc(LOAN_STATUS[s])}</span>`).join("<span>›</span>")}</div>` : ""}
-        ${actions.length ? `<div class="card-actions">${actions.join("")}</div>` : ""}
-    </article>`;
+    </div>`;
+    // v5.7: one line per loan (like the Asset Catalogue); click the line for the details, buttons stay on the line.
+    return `<div class="asset-group loan-row ${overdue ? "overdue" : ""}">
+        <div class="group-head ${open ? "open" : ""}" data-loan-toggle="${esc(l.id)}" role="button" tabindex="0" aria-expanded="${open}">
+            <div class="group-title">
+                <span class="chev ${open ? "open" : ""}">▶</span>
+                <span class="group-name">${esc(loanItemsText(l))}</span>
+                <span class="group-desc">For <b>${esc(loanWho(l))}</b></span>
+            </div>
+            <div class="group-badges"><span class="pill qty loan-when">${esc(when)}</span>
+                <span class="st st-${overdue ? "overdue" : l.status}">${overdue ? "Overdue" : LOAN_STATUS[l.status] || l.status}</span>
+                ${actions.length ? `<span class="loan-acts">${actions.join("")}</span>` : ""}</div>
+        </div>
+        ${body}
+    </div>`;
 }
 
 function renderLoans() {
@@ -82,32 +93,50 @@ function renderLoans() {
     const seeAll = approver || can("loans", "viewAll");
     $("loans-sub").textContent = approver ? "Review requests, hand out the exact units, and check gear back in." : seeAll ? "Every loan, live. Only loan managers can approve or receive." : "Borrow gear for rehearsals and events. Requests need at least 2 days' notice.";
     const byDate = (a, b) => String(a.collectDate || a.requestedAt).localeCompare(String(b.collectDate || b.requestedAt));
-    const section = (title, desc, list, emptyText) => `<section class="board-section">
+    // v5.7: search + status filter (the bar at the top of the page)
+    const q = lc(($("loan-search") || {}).value || "").trim(), stF = ($("loan-status") || {}).value || "ALL";
+    const filtering = !!q || stF !== "ALL";
+    const passes = l => (stF === "ALL" || (stF === "overdue" ? isLoanOverdue(l) : stF === "history" ? ["returned", "rejected", "cancelled"].includes(l.status) : l.status === stF))
+        && (!q || lc([loanItemsText(l), loanWho(l), l.requestedByName, l.requestedBy, l.reason, l.approveNote, LOAN_STATUS[l.status], (l.assigned || []).map(u => `${u.label} ${u.assetNo || ""}`).join(" ")].join(" ")).includes(q));
+    const section = (title, desc, list, emptyText) => filtering && !list.length ? "" : `<section class="board-section">
         <div class="board-head"><h3>${title}</h3><span class="count">${list.length}</span>${desc ? `<p class="muted small">${desc}</p>` : ""}</div>
-        ${list.length ? `<div class="card-grid">${list.map(l => loanCard(l, approver)).join("")}</div>` : `<div class="empty-state">${emptyText}</div>`}
+        ${list.length ? `<div class="loan-list">${list.map(l => loanCard(l, approver)).join("")}</div>` : `<div class="empty-state">${emptyText}</div>`}
     </section>`;
+    const none = `<div class="empty-state">No loans match${q ? ` “${esc(q)}”` : ""}. <button type="button" class="link-btn" onclick="clearLoanFilters()">Clear search</button></div>`;
+    let html;
     if (seeAll) {
-        const st = s => loans.filter(l => l.status === s).sort(byDate);
-        const history = loans.filter(l => ["returned", "rejected", "cancelled"].includes(l.status))
-            .sort((a, b) => String(b.returnedAt || b.rejectedAt || b.cancelledAt || b.requestedAt).localeCompare(String(a.returnedAt || a.rejectedAt || a.cancelledAt || a.requestedAt))).slice(0, 12);
-        host.innerHTML =
+        const st = s => loans.filter(l => l.status === s && passes(l)).sort(byDate);
+        const finished = loans.filter(l => ["returned", "rejected", "cancelled"].includes(l.status) && passes(l))
+            .sort((a, b) => String(b.returnedAt || b.rejectedAt || b.cancelledAt || b.requestedAt).localeCompare(String(a.returnedAt || a.rejectedAt || a.cancelledAt || a.requestedAt)));
+        const history = filtering ? finished.slice(0, 100) : finished.slice(0, 12);
+        html =
             section("Requests", "Approve to assign exact units - they switch to On Loan in the catalogue.", st("requested"), "No new requests") +
             section("Returns to receive", "The borrower says it's back. Check each unit in.", st("returnRequested"), "Nothing waiting") +
             section("Ready for collection", "Approved and waiting for the borrower to pick up.", st("approved"), "Nothing waiting") +
             section("On loan", "", st("collected"), "Nothing out on loan") +
             section("Recent history", "", history, "No finished loans yet");
     } else {
-        const mine = loans.filter(loanMine);
+        const mine = loans.filter(l => loanMine(l) && passes(l));
         const active = mine.filter(l => ["requested", ...OPEN_LOAN].includes(l.status)).sort(byDate);
-        const past = mine.filter(l => !active.includes(l)).sort((a, b) => String(b.requestedAt).localeCompare(String(a.requestedAt))).slice(0, 10);
-        host.innerHTML = section("My active loans", "", active, `No active loans. Use <b>+ Request Loan</b> to borrow gear.`) +
+        const past = mine.filter(l => !active.includes(l)).sort((a, b) => String(b.requestedAt).localeCompare(String(a.requestedAt))).slice(0, filtering ? 100 : 10);
+        html = section("My active loans", "", active, `No active loans. Use <b>+ Request Loan</b> to borrow gear.`) +
             (past.length ? section("Past loans", "", past, "") : "");
     }
+    host.innerHTML = filtering && !html ? none : html;
+}
+function clearLoanFilters() {
+    if ($("loan-search")) $("loan-search").value = "";
+    if ($("loan-status")) $("loan-status").value = "ALL";
+    renderLoans();
 }
 
 $("loans-container").addEventListener("click", e => {
     const b = e.target.closest("[data-loan]");
-    if (!b) return;
+    if (!b) {
+        const t = e.target.closest("[data-loan-toggle]");
+        if (t) { const id = t.dataset.loanToggle; if (loanOpen.has(id)) loanOpen.delete(id); else loanOpen.add(id); renderLoans(); }
+        return;
+    }
     const l = loans.find(x => x.id === b.dataset.id);
     if (!l) return;
     ({ approve: openLoanApprove, reject: rejectLoan, cancel: cancelLoanRequest, collected: markCollected,
@@ -492,3 +521,8 @@ async function closeLoanFromCatalogue(a, l, nextCondition) {
         toast(others.length ? `${assetLabel(a)} returned - ${plural(others.length, "unit")} still out on this loan` : `Loan to ${loanWho(l)} closed`);
     } catch (er) { toast(friendlyError(er), "err"); requestRender(true); }
 }
+
+$("loans-container").addEventListener("keydown", e => {
+    const t = e.target.closest && e.target.closest("[data-loan-toggle]");
+    if (t && t === e.target && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); t.click(); }
+});

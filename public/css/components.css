@@ -37,8 +37,7 @@
 .cond-select.locked { opacity: .5; }
 
 /* ---------- Ops strip (Condition Mix + action tiles) ---------- */
-.ops-strip { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); gap: .85rem; margin-bottom: 1rem; }
-@media (max-width: 1150px) { .ops-strip { grid-template-columns: 1fr; } }
+.ops-strip { display: contents; }   /* v5.7: the tiles scroll away; the condition bar + filters (#cat-sticky) freeze under the title row */
 .ops-mix { background: var(--surface); border: 1px solid var(--border-soft); border-radius: var(--r); padding: .8rem .9rem .75rem; min-width: 0; }
 .ops-mix-head { display: flex; justify-content: space-between; align-items: center; gap: .5rem; flex-wrap: wrap; margin-bottom: .55rem; }
 .ops-title { font-size: .68rem; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
@@ -56,7 +55,9 @@
 .chip.active { background: var(--c); color: var(--on-solid); border-color: var(--c); }
 .chip.zero { opacity: .4; }
 .chip-clear { font-size: .72rem; font-weight: 600; }
-.ops-tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .6rem; }
+.ops-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .6rem; margin: .6rem 0 .8rem; }
+.ops-tiles:empty { display: none; }
+@media (max-width: 900px) { .ops-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .ops-tile {
     display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: .1rem; text-align: left; cursor: pointer;
     background: var(--surface); border: 1px solid var(--border-soft); border-radius: var(--r); padding: .65rem .85rem; color: var(--text-2); font: inherit;
@@ -755,3 +756,30 @@ input[data-combo]:not([readonly]):not(:disabled) { background-image: linear-grad
 }
 .view-head.stick { margin-bottom: 0; padding-bottom: .6rem; }
 .filter-bar.stick-sub { margin-bottom: .5rem; }
+
+/* v5.7 condition bar frozen with the search row */
+#cat-sticky .ops-mix { padding: .5rem .75rem .5rem; margin-bottom: .5rem; }
+#cat-sticky .ops-mix-head { margin-bottom: .35rem; }
+#cat-sticky .chip-row { gap: .3rem; }
+#cat-sticky .filter-bar { margin-bottom: .2rem; }
+@media (max-width: 900px) {
+    #cat-sticky { overflow: visible; flex-wrap: initial; }
+    #cat-sticky .ops-mix-head .right .muted { display: none; }
+    #cat-sticky .chip-row { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
+    #cat-sticky .chip-row > * { flex: 0 0 auto; }
+    #cat-sticky .cond-bar { height: 6px; margin-bottom: .45rem; }
+    #cat-sticky .filter-bar { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+    #cat-sticky .filter-bar > * { flex: 0 0 auto; }
+    #cat-sticky .filter-input { flex: 0 0 min(15rem, 62vw); }
+}
+
+/* v5.7 Equipment Loans as a list */
+.loan-list { display: flex; flex-direction: column; }
+.loan-row.overdue { border-color: color-mix(in srgb, var(--bad) 88%, var(--surface)); }
+.loan-row .group-head { align-items: center; }
+.loan-row .group-name { white-space: normal; }
+.loan-when { white-space: nowrap; }
+.loan-acts { display: inline-flex; gap: .35rem; flex-wrap: wrap; }
+.loan-body { padding: .7rem 1rem .9rem 2.3rem; display: flex; flex-direction: column; gap: .55rem; border-top: 1px solid var(--border-soft); }
+#loans-container .board-section .empty-state { padding: .7rem 1rem; }
+#loans-container .board-section { margin-bottom: 1.1rem; }

@@ -238,7 +238,7 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); width
 .topbar { display: none; }
 .nav-scrim { display: none; }
 @media (max-width: 900px) {
-    .app { flex-direction: column; }
+    .app { flex-direction: column; height: auto; min-height: 100%; }   /* v5.7: a viewport-high .app made frozen bars let go after one screen of scrolling */
     .topbar {
         display: flex; align-items: center; gap: .6rem; padding: .6rem 16px; background: var(--sidebar);
         border-bottom: 1px solid var(--border-soft); position: sticky; top: env(safe-area-inset-top, 0px); z-index: 30;

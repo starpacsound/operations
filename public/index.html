@@ -206,8 +206,11 @@
                         </div>
                     </div>
                 </div>
-                <div id="ops-strip" class="ops-strip"></div>
-                <div class="filter-bar stick-sub">
+                <div id="ops-strip" class="ops-strip">
+                    <div id="ops-tiles" class="ops-tiles"></div>
+                    <div class="stick-sub" id="cat-sticky">
+                        <div id="ops-mix"></div>
+                        <div class="filter-bar">
                     <input type="search" id="search-input" class="filter-input" oninput="handleSearch()" placeholder="Search category, brand, model, asset no, serial, code, space, location…">
                     <select id="filter-category" class="filter-select" onchange="handleSearch()"><option value="ALL">All categories</option></select>
                     <select id="filter-location" class="filter-select" onchange="handleSearch()"><option value="ALL">All spaces / locations</option></select>
@@ -227,6 +230,8 @@
                         <option value="year_desc">Sort: Year newest first</option>
                         <option value="year_asc">Sort: Year oldest first</option>
                     </select>
+                </div>
+                    </div>
                 </div>
                 <div class="edit-banner hidden">Edit mode is on. Changes save when you leave a cell; dimmed cells are outside your permissions.</div>
                 <div id="inventory-container" class="asset-zone"></div>
@@ -315,6 +320,14 @@
                 <div class="view-head">
                     <div><h1>Equipment Loans</h1><p class="view-sub" id="loans-sub">Borrow gear for rehearsals and events.</p></div>
                     <div class="toolbar"><button type="button" class="btn btn-primary loan-request-only" onclick="openLoanRequest()">+ Request Loan</button></div>
+                </div>
+                <div class="filter-bar">
+                    <input type="search" id="loan-search" class="filter-input" oninput="renderLoans()" placeholder="Search equipment, borrower, requester, reason…" aria-label="Search loans">
+                    <select id="loan-status" class="filter-select" onchange="renderLoans()" aria-label="Status">
+                        <option value="ALL">All loans</option><option value="requested">Requested</option><option value="returnRequested">Return pending</option>
+                        <option value="approved">Ready to collect</option><option value="collected">On loan</option><option value="overdue">Overdue</option><option value="history">Finished (returned / rejected / cancelled)</option>
+                    </select>
+                    <button type="button" class="link-btn" onclick="clearLoanFilters()">Clear</button>
                 </div>
                 </div>
                 <div id="loans-container"></div>
