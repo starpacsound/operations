@@ -23,6 +23,14 @@
 //
 // PEOPLE (Admin people list, bookers' active list) works the same way: see people.js.
 // =====================================================================
+// Rough count of the documents this browser has read from the database since the app was opened, by collection
+// (Settings shows it). Estimate: the first answer from the server counts every document, later ones the changed ones.
+const ReadStats = {
+    by: {},
+    add(col, n) { if (n > 0) this.by[col] = (this.by[col] || 0) + n; },
+    total() { return Object.values(this.by).reduce((a, b) => a + b, 0); }
+};
+
 const Bundles = (() => {
     // Per bundle. Firestore caps one record at 1 MiB and at 40,000 index entries; every field of every asset
     // counts about 2 entries unless `items` is exempt from indexing (firestore.indexes.json), so stay well under.
@@ -177,6 +185,10 @@ const Bundles = (() => {
         return out;
     }
 
+    // This browser's own saved changes (seq + the full assets written). When invMeta/changes reports them, the app applies
+    // them from here instead of reading the same assets back from the database.
+    const ownTx = [];
+
     // Firestore save of ops that touch inventory: the ops + bundle entries + invMeta/changes in one
     // transaction per chunk. ns = firebase.firestore (for FieldPath / FieldValue).
     // onProgress(doneAssets, totalAssets) runs after each transaction (imports show it).
@@ -186,7 +198,9 @@ const Bundles = (() => {
         const total = ops.filter(o => o.col === "inventory").length;
         let done = 0;
         for (const part of chunkOps(ops, 400)) {
+            let applied = null;
             await db.runTransaction(async t => {
+                applied = null;
                 const metaSnap = await t.get(metaRef);
                 const current = new Map();
                 if (metaSnap.exists) {
@@ -206,6 +220,7 @@ const Bundles = (() => {
                 });
                 if (!metaSnap.exists) return;                    // bundles not built yet: plain save
                 const { bundleOps, meta } = expand(part, metaSnap.data(), current);
+                applied = { seq: meta.seq, ops: bundleOps.map(b => ({ bid: b.bid, sets: b.sets, dels: b.dels })) };
                 bundleOps.forEach(b => {
                     const ref = db.collection("invBundles").doc(b.bid);
                     if (b.isNew) { t.set(ref, { cat: b.cat, v: b.v, items: b.sets, last: b.last }); return; }
@@ -216,6 +231,7 @@ const Bundles = (() => {
                 });
                 t.set(metaRef, meta);
             });
+            if (applied) { ownTx.push(applied); if (ownTx.length > 30) ownTx.shift(); }
             done += part.filter(o => o.col === "inventory").length;
             if (onProgress) onProgress(done, total);
         }
@@ -253,6 +269,19 @@ const Bundles = (() => {
         };
     }
     let cache = null;
+
+    // Older, finished records (closed loans, past shows) are fetched when someone asks for them and kept in this browser's
+    // copy for 3 hours, so opening them again, or refreshing the page, costs no reads. fetcher() returns the rows.
+    const OLD_KEEP_MS = 3 * 3600 * 1000;
+    async function cachedList(store, key, fetcher, force) {
+        if (!cache) cache = makeCache(store.mode === "cloud");
+        const hit = force ? null : await cache.get(key);
+        if (hit && hit.rows && Date.now() - hit.at < OLD_KEEP_MS) return { rows: hit.rows, at: hit.at, fromCopy: true };
+        const rows = await fetcher();
+        const at = Date.now();
+        cache.put(key, { at, rows });
+        return { rows, at, fromCopy: false };
+    }
     const stats = { reads: 0, bundleDownloads: 0, assetReads: 0, fromCache: 0, legacy: false, built: false, seq: 0, bundles: 0 };
 
     // ---------------------------------------------------------------- read path
@@ -296,18 +325,28 @@ const Bundles = (() => {
             const covered = st.seq >= 0 && (meta.seq === st.seq || (recent.length > 0 && recent[0].s <= st.seq + 1));
             const want = Object.entries(meta.bundles || {}).filter(([, b]) => visible(b.cat));
             const newer = covered ? recent.filter(e => e.s > st.seq) : [];
+            // Changes this browser saved itself are applied from memory; only other people's changes are read back.
+            const own = new Map(ownTx.map(x => [x.seq, x]));
+            const isOwn = e => e.id !== "*" && own.has(e.s);
+            const foreign = newer.filter(e => !isOwn(e));
 
             const download = [], patchable = [];
             want.forEach(([bid, b]) => {
                 const have = st.bundles[bid];
                 if (have && have.v === b.v) { stats.fromCache++; return; }
-                const mine = newer.filter(e => e.b === bid);
-                if (!have || !covered || !mine.length || mine.some(e => e.id === "*") || mine.length > PATCH_LIMIT) download.push(bid);
+                const here = newer.filter(e => e.b === bid), mine = foreign.filter(e => e.b === bid);
+                if (!have || !covered || !here.length || here.some(e => e.id === "*") || mine.length > PATCH_LIMIT) download.push(bid);
                 else patchable.push(bid);
             });
+            [...new Set(newer.filter(isOwn).map(e => e.s))].sort((a, b) => a - b).forEach(s => own.get(s).ops.forEach(b => {
+                const tgt = st.bundles[b.bid];
+                if (!tgt || download.includes(b.bid)) return;
+                Object.entries(b.sets).forEach(([id, d]) => { tgt.items[id] = d; });
+                b.dels.forEach(id => { delete tgt.items[id]; });
+            }));
             // Assets to re-read, each with the bundle of its latest entry (an asset can move between bundles).
             const patchIds = new Map();
-            newer.forEach(e => { if (e.id !== "*" && (patchable.includes(e.b) || download.includes(e.b))) patchIds.set(e.id, e.b); });
+            foreign.forEach(e => { if (e.id !== "*" && (patchable.includes(e.b) || download.includes(e.b))) patchIds.set(e.id, e.b); });
             const toRead = [...patchIds].filter(([, bid]) => !download.includes(bid));
             if (toRead.length > PATCH_LIMIT) { patchable.forEach(bid => download.push(bid)); patchable.length = 0; }
             patchable.forEach(bid => { st.bundles[bid].v = meta.bundles[bid].v; });
@@ -401,7 +440,7 @@ const Bundles = (() => {
     }
 
     return {
-        MAX_ASSETS, build, expand, chunk, chunkOps, commitTx, index, stats, watchInventory, watchAvailMonth, watchCopy,
+        MAX_ASSETS, OLD_KEEP_MS, ownTx, cachedList, build, expand, chunk, chunkOps, commitTx, index, stats, watchInventory, watchAvailMonth, watchCopy,
         setTrusted(fn) { trusted = fn; },
         resetCache() { cache = null; }
     };

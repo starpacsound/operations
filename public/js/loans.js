@@ -132,6 +132,10 @@ function renderLoans() {
         <div class="board-head"><h3>${title}</h3><span class="count">${list.length}</span>${desc ? `<p class="muted small">${desc}</p>` : ""}</div>
         ${list.length ? `<div class="loan-list">${loanGroups(list).map(g => g.length > 1 ? loanGroup(g, approver) : loanCard(g[0], approver)).join("")}</div>` : `<div class="empty-state">${emptyText}</div>`}
     </section>`;
+    const oldLoansBar = () => oldLoansAt
+        ? `<p class="muted small old-bar">Finished loans loaded ${esc(fmtDateTime(new Date(oldLoansAt).toISOString()))}, kept on this device for 3 hours. <button type="button" class="link-btn" data-old-loans="refresh">Refresh</button></p>`
+        : `<p class="muted small old-bar">${oldLoading ? "Loading finished loans…" : `Only loans finished since you opened the app are listed. <button type="button" class="btn btn-sm" data-old-loans="load">Load all finished loans</button>`}</p>`;
+    if (seeAll && !oldLoansAt && !oldLoading && (stF === "history" || q)) setTimeout(loadFinishedLoans, 0);   // looking for a past loan: fetch them
     const none = `<div class="empty-state">No loans match${q ? ` “${esc(q)}”` : ""}. <button type="button" class="link-btn" onclick="clearLoanFilters()">Clear search</button></div>`;
     let html;
     if (seeAll) {
@@ -152,8 +156,41 @@ function renderLoans() {
         html = section("My active loans", "", active, `No active loans. Use <b>+ Request Loan</b> to borrow gear.`) +
             (past.length ? section("Past loans", "", past, "") : "");
     }
-    host.innerHTML = filtering && !html ? none : html;
+    host.innerHTML = filtering && !html ? none : html + (seeAll ? oldLoansBar() : "");
 }
+// ---------- v5.11: finished loans load on request (loan managers only keep open loans live) ----------
+let prevLiveLoanIds = new Set(), oldLoading = false;
+function mergeLoans() {
+    const live = new Set(liveLoans.map(l => l.id));
+    loans = [...liveLoans, ...oldLoans.filter(l => !live.has(l.id))];
+    dataChanged();
+}
+// A loan that just left the live list (returned, rejected, cancelled) is read once and added to the finished ones.
+function keepJustClosed(rows) {
+    const now = new Set(rows.map(l => l.id));
+    const gone = [...prevLiveLoanIds].filter(id => !now.has(id) && !oldLoans.some(l => l.id === id));
+    prevLiveLoanIds = now;
+    if (!gone.length || gone.length > 20) return;
+    Promise.all(gone.map(id => store.getDoc("loans", id).catch(() => null))).then(docs => {
+        docs.filter(Boolean).forEach(d => { if (!oldLoans.some(l => l.id === d.id)) oldLoans.push(d); });
+        mergeLoans();
+    });
+}
+async function loadFinishedLoans(force) {
+    if (oldLoading) return;
+    oldLoading = true;
+    try {
+        const r = await Bundles.cachedList(store, oldKey("loans"),
+            () => store.getAll("loans", { where: [["status", "in", ["returned", "rejected", "cancelled"]]] }), force);
+        const byId = new Map(r.rows.map(l => [l.id, l]));
+        oldLoans.forEach(l => byId.set(l.id, l));                 // what closed while the app was open is fresher
+        oldLoans = [...byId.values()]; oldLoansAt = r.at;
+        mergeLoans();
+    } catch (err) { toast(friendlyError(err), "err"); }
+    oldLoading = false;
+    renderLoans();
+}
+
 function clearLoanFilters() {
     if ($("loan-search")) $("loan-search").value = "";
     if ($("loan-status")) $("loan-status").value = "ALL";
@@ -161,6 +198,8 @@ function clearLoanFilters() {
 }
 
 $("loans-container").addEventListener("click", e => {
+    const ob = e.target.closest("[data-old-loans]");
+    if (ob) return loadFinishedLoans(ob.dataset.oldLoans === "refresh");
     const gb = e.target.closest("[data-loan-group]");
     if (gb) {
         const list = loans.filter(l => loanGroupKey(l) === gb.dataset.loanGroup);

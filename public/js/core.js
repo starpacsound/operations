@@ -62,6 +62,12 @@ let inventory = [];
 let tickets = [];
 let loans = [];
 let shows = [];
+// v5.11: loan managers keep only open loans live; finished ones (oldLoans) and shows older than SHOWS_LIVE_DAYS (showsOld) load on request.
+const LOAN_OPEN_STATUSES = ["requested", "approved", "collected", "returnRequested"];
+const SHOWS_LIVE_DAYS = 60;
+let liveLoans = [], oldLoans = [], oldLoansAt = 0, showsOld = [], showsOldAt = 0;
+let mergeShows = () => {};
+const oldKey = name => `old:${(window.APP_CONFIG && APP_CONFIG.firebase && APP_CONFIG.firebase.projectId) || "demo"}:${authUser ? authUser.uid : ""}:${name}`;
 let checks = {};          // `${roundId}_${assetId}` -> tick (built from checkTicks while Inventory Check is open)
 let audits = [];          // inventory-check rounds (open + history)
 let discrepancies = [];
@@ -382,7 +388,9 @@ const LOG_SKIP_BOOKINGS = ["Soft booked", "Booking confirmed", "Booking cleared"
 const LOG_SKIP = new Set([...LOG_SKIP_BOOKINGS,
     "Loan requested", "Loan cancelled", "Loan return started", "Discrepancy reported", "Check round started",
     "Password changed", "Branding updated", "Venue added", "Venue removed", "Venue colour changed", "Condition added", "Condition changed", "Condition removed",
-    "Inventory bundles built", "Inventory bundles rebuilt", "Booking emails turned on", "Booking emails turned off"]);
+    "Inventory bundles built", "Inventory bundles rebuilt", "Booking emails turned on", "Booking emails turned off",
+    // v5.11 (MY's pick): asset detail edits (only condition / location changes are logged), show lists, crew ticks, templates, finished rounds
+    "Asset updated", "Show signed out", "Show signed in", "Show gear added", "Crew roles changed", "Role template changed", "Auto sign-out changed", "Check round finished"]);
 const logWanted = action => !LOG_SKIP.has(String(action || ""));
 const keepUsefulLogs = ops => ops.filter(o => o.col !== "logs" || o.op !== "set" || logWanted(o.data && o.data.action));
 

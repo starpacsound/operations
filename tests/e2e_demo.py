@@ -826,7 +826,7 @@ with sync_playwright() as p:
     page.wait_for_timeout(300)
 
     # ================= v5.1: Log History keeps only useful entries =================
-    check("log filter: equipment / account actions are kept", ev(page, "logWanted('Condition change') && logWanted('Loan approved') && logWanted('Show signed out') && logWanted('User approved') && logWanted('Maintenance log: Fault')"))
+    check("log filter: equipment / account actions are kept", ev(page, "logWanted('Condition change') && logWanted('Location change') && logWanted('Loan approved') && logWanted('User approved') && logWanted('Maintenance log: Fault') && !logWanted('Asset updated') && !logWanted('Show signed out') && !logWanted('Crew roles changed') && !logWanted('Check round finished')"))
     check("log filter: bookings and in-between steps are dropped", ev(page, "!logWanted('Soft booked') && !logWanted('Loan requested') && !logWanted('Check round started') && !logWanted('Password changed')"))
     check("log filter: a save with only a dropped entry writes nothing", ev(page, "(async () => { const n = (await store.getAll('logs')).length; await commitOps([makeLog('Soft booked', null, [], 'x')]); return (await store.getAll('logs')).length === n; })()"))
 
@@ -838,7 +838,7 @@ with sync_playwright() as p:
     page.click("[data-av-crole='u-crew'][data-role='NEW']"); page.wait_for_timeout(300)
     check("roles: a Co-Admin ticks a crew role in the team grid", ev(page, "(crewRoleMap['u-crew'] || []).includes('NEW')") != had
           and ev(page, "store.getDoc('crewRoles', 'all').then(d => (d.roles['u-crew'] || []).includes('NEW'))") != had)
-    check("roles: the tick is logged", logs_has(page, "logs.some(l => l.action === 'Crew roles changed')"))
+    check("roles: the tick is saved but not logged (v5.11)", not logs_has(page, "logs.some(l => l.action === 'Crew roles changed')"))
     page.click("[data-av-crole='u-crew'][data-role='NEW']"); page.wait_for_timeout(300)
     check("roles: clicking again unticks it, other roles kept", ev(page, "(crewRoleMap['u-crew'] || []).includes('NEW')") == had
           and ev(page, "(crewRoleMap['u-crew'] || []).includes('CRS')"))
@@ -1242,7 +1242,10 @@ with sync_playwright() as p:
     page.fill("#loan-search", "zzzzqq"); page.wait_for_timeout(150)
     check("v5.7: no match says so", "No loans match" in page.inner_text("#loans-container") and page.locator("#loans-container .loan-row").count() == 0)
     page.click("#view-loans .filter-bar .link-btn"); page.wait_for_timeout(150)
-    check("v5.7: Clear brings every loan back", page.locator("#loans-container .loan-row").count() == total and page.input_value("#loan-search") == "")
+    check("v5.7: Clear brings every loan back", page.locator("#loans-container .loan-row").count() >= total and page.input_value("#loan-search") == "")
+    # v5.11: only open loans stay live; finished ones load on request and are kept
+    check("v5.11: the live loan list holds only open loans", ev(page, "liveLoans.length > 0 && liveLoans.every(l => LOAN_OPEN_STATUSES.includes(l.status))"))
+    check("v5.11: searching fetched the finished loans and they are kept", ev(page, "oldLoansAt > 0 && oldLoans.every(l => !LOAN_OPEN_STATUSES.includes(l.status))"))
     page.select_option("#loan-status", "collected"); page.wait_for_timeout(150)
     check("v5.7: status filter shows only that status", page.locator("#loans-container .loan-row").count() >= 1 and page.locator("#loans-container .loan-row .st:not(.st-collected):not(.st-overdue)").count() == 0)
     page.select_option("#loan-status", "ALL")
@@ -1317,6 +1320,15 @@ with sync_playwright() as p:
     ev(page, f"commitOps(wfAssetOps(assetById({f10['id']!r}), {{ condition: 'Faulty', faultStatus: 'confirmed', condBefore: '' }}, 'maintenance', tickets.find(t => t.assetId === {f10['id']!r} && t.stage === 'request').id, 'confirmed').ops)"); page.wait_for_timeout(300)
     check("v5.10: confirming shows 'Confirmed faulty' and a later condition change clears the flag", "Confirmed faulty" in ev(page, f"faultTag(assetById({f10['id']!r}))")
           and ev(page, f"(() => {{ const r = wfAssetOps(assetById({f10['id']!r}), {{ condition: 'On Repair' }}, 'maintenance', 'x', 'repairing'); return r.ops[0].data.faultStatus === '' ; }})()"))
+    # v5.11: older records are kept for 3 hours, shows older than 60 days load on request, reads are counted in Settings
+    r = ev(page, "(async () => { const a = await Bundles.cachedList(store, 'old:t:t', async () => [{id:1}]); const b = await Bundles.cachedList(store, 'old:t:t', async () => [{id:2}]); const c = await Bundles.cachedList(store, 'old:t:t', async () => [{id:3}], true); return [a.fromCopy, b.fromCopy, b.rows[0].id, c.rows[0].id]; })()")
+    check("v5.11: a list is fetched once, then served from this device, until refreshed", r == [False, True, 1, 3])
+    go(page, "shows"); page.wait_for_timeout(200)
+    check("v5.11: shows has a Load older shows button for full-timers", page.locator("[data-old-shows=load]").count() == 1)
+    page.click("[data-old-shows=load]"); page.wait_for_timeout(400)
+    check("v5.11: loading older shows keeps them for 3 hours", ev(page, "showsOldAt > 0") and page.locator("[data-old-shows=refresh]").count() == 1)
+    go(page, "branding"); page.wait_for_timeout(200)
+    check("v5.11: Settings has a reads panel listing the lists read", "Database reads" in ev(page, "readsPanelHtml()") and ev(page, "ReadStats.total() >= 0"))
     # v5.8: sort by item space / item location
     r = ev(page, """(() => { const it = [{id:'a',itemSpace:'Studio 2',itemLocation:'Rack B'},{id:'b',itemSpace:'Studio 1',itemLocation:'Rack Z'},{id:'c',itemSpace:'',itemLocation:'Rack A'},{id:'d',itemSpace:'Studio 1',itemLocation:'Rack C'}];
         return [sortItems(it,'space_asc').map(x=>x.id).join(''), sortItems(it,'space_desc').map(x=>x.id).join(''), sortItems(it,'location_asc').map(x=>x.id).join(''), sortItems(it,'location_desc').map(x=>x.id).join('')]; })()""")

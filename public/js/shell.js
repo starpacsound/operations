@@ -176,7 +176,7 @@ idleTick = setInterval(checkIdle, 5000);
 function teardown() {
     stopData();
     if (profileUnsub) { profileUnsub(); profileUnsub = null; }
-    profile = null; inventory = []; tickets = []; loans = []; shows = []; availMine = []; reminders = []; askToastShown = false; availMonth = ""; availTab = "mine"; crewRoleMap = {}; myJobs = []; showOpen.clear(); stopAvailGrid(); stopMonthJobs(); settings.rosterLists = null; settings.availability = null; checks = {}; audits = []; discrepancies = []; logs = []; users = [];
+    profile = null; inventory = []; tickets = []; loans = []; liveLoans = []; oldLoans = []; oldLoansAt = 0; shows = []; showsOld = []; showsOldAt = 0; availMine = []; reminders = []; askToastShown = false; availMonth = ""; availTab = "mine"; crewRoleMap = {}; myJobs = []; showOpen.clear(); stopAvailGrid(); stopMonthJobs(); settings.rosterLists = null; settings.availability = null; checks = {}; audits = []; discrepancies = []; logs = []; users = [];
     settings.roles = null; settings.venues = null; settings.conditions = null; applyConditions(null); selectedRound = null;
     Object.keys(viewScroll).forEach(k => delete viewScroll[k]);
     appRunning = false; permKey = ""; invLoaded = false; editMode = false; brandDraft = null;
@@ -402,14 +402,21 @@ function startData() {
     if (tabOn("check")) {
         // Rounds: open ones for everyone with the tab, finished ones (history) only with permission.
         sub("audits", can("check", "history") ? {} : { where: [["status", "==", "open"]] }, rows => { audits = rows; syncTicks(); dataChanged(); }, "check rounds");
-        sub("discrepancies", can("check", "review") ? {} : { where: [["byUid", "==", uid]] }, rows => { discrepancies = rows; dataChanged(); }, "discrepancy reports");
+        sub("discrepancies", can("check", "review") ? { where: [["status", "==", "pending"]] } : { where: [["byUid", "==", uid]] }, rows => { discrepancies = rows; dataChanged(); }, "discrepancy reports");
     }
     const allLoans = can("loans", "manage") || can("loans", "viewAll");
-    if (tabOn("loans") || allLoans) sub("loans", allLoans ? {} : { where: [["requestedByUid", "==", uid]] }, rows => { loans = rows; dataChanged(); }, "loans");
+    // Loan managers: only open loans stay live. Finished ones (returned / rejected / cancelled) are fetched when asked for and
+    // kept in this browser for 3 hours (loans.js › loadFinishedLoans); one that closes while the app is open is added on the spot.
+    if (allLoans) sub("loans", { where: [["status", "in", LOAN_OPEN_STATUSES]] }, rows => { liveLoans = rows; keepJustClosed(rows); mergeLoans(); }, "loans");
+    else if (tabOn("loans")) sub("loans", { where: [["requestedByUid", "==", uid]] }, rows => { loans = rows; dataChanged(); }, "loans");
     // Shows: own sign-outs (or all, for full-timers), plus the shared lists of jobs I'm booked on (last 60 days on).
-    let showsOwn = [], showsCrew = [];
-    const mergeShows = () => { const m = new Map(); [...showsOwn, ...showsCrew].forEach(s => m.set(s.id, s)); shows = [...m.values()]; dataChanged(); };
-    if (tabOn("shows") || can("shows", "viewAll")) sub("shows", can("shows", "viewAll") ? {} : { where: [["createdByUid", "==", uid]] }, rows => { showsOwn = rows; mergeShows(); }, "shows");
+    // Full-timers see the last 60 days plus anything still signed out; older lists load on request (shows.js › loadOlderShows, kept 3 hours).
+    let showsOwn = [], showsCrew = [], showsOut = [];
+    mergeShows = () => { const m = new Map(); [...showsOwn, ...showsOut, ...showsCrew, ...showsOld].forEach(s => m.set(s.id, s)); shows = [...m.values()]; dataChanged(); };
+    if (can("shows", "viewAll")) {
+        sub("shows", { where: [["showDate", ">=", addDays(-SHOWS_LIVE_DAYS)]] }, rows => { showsOwn = rows; mergeShows(); }, "shows");
+        sub("shows", { where: [["status", "==", "out"]] }, rows => { showsOut = rows; mergeShows(); }, "shows signed out");
+    } else if (tabOn("shows")) sub("shows", { where: [["createdByUid", "==", uid]] }, rows => { showsOwn = rows; mergeShows(); }, "shows");
     if (!can("shows", "viewAll")) sub("shows", { where: [["crewUids", "array-contains", uid], ["showDate", ">=", addDays(-60)]] }, rows => { showsCrew = rows; mergeShows(); }, "your shows' gear lists");
     if (tabOn("avail")) {
         dataUnsubs.push(store.watchDoc("settings", "availability", d => { settings.availability = d; if (currentView === "availability") renderAvailability(); }, () => {}));

@@ -35,6 +35,7 @@
 }
 .cond-select:disabled { cursor: default; opacity: .9; }
 .cond-select.locked { opacity: .5; }
+.old-bar { margin: .9rem 0 .4rem; }
 .fault-tag { display: block; margin-top: .2rem; font-size: .68rem; font-weight: 600; line-height: 1.2; color: var(--bad); }
 .fault-tag.pending { color: var(--warn); }
 

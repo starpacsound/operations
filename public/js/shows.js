@@ -23,6 +23,23 @@ const showCrewNames = s => {
     return j ? (j.crew || []).map(c => c.name).filter(Boolean) : [];
 };
 
+// v5.11: full-timers keep the last 60 days live (plus anything still signed out); older lists load on request.
+let showsOldLoading = false;
+async function loadOlderShows(force) {
+    if (showsOldLoading) return;
+    showsOldLoading = true; renderShows();
+    try {
+        const r = await Bundles.cachedList(store, oldKey("shows"), () => store.getAll("shows", { where: [["showDate", "<", addDays(-SHOWS_LIVE_DAYS)]] }), force);
+        showsOld = r.rows; showsOldAt = r.at;
+        mergeShows();
+    } catch (err) { toast(friendlyError(err), "err"); }
+    showsOldLoading = false;
+    renderShows();
+}
+const olderShowsBar = () => !can("shows", "viewAll") ? "" : showsOldAt
+    ? `<p class="muted small old-bar">Older shows loaded ${esc(fmtDateTime(new Date(showsOldAt).toISOString()))}, kept on this device for 3 hours. <button type="button" class="link-btn" data-old-shows="refresh">Refresh</button></p>`
+    : `<p class="muted small old-bar">${showsOldLoading ? "Loading older shows…" : `Showing the last ${SHOWS_LIVE_DAYS} days and anything still signed out. <button type="button" class="btn btn-sm" data-old-shows="load">Load older shows</button>`}</p>`;
+
 function renderShows() {
     const host = $("shows-container");
     if (!host || !profile) return;
@@ -35,7 +52,7 @@ function renderShows() {
         (!mineOnly || s.createdByUid === authUser.uid))
         .sort((a, b) => (a.status === "out" ? 0 : 1) - (b.status === "out" ? 0 : 1) || String(b.showDate || b.signedOutAt).localeCompare(String(a.showDate || a.signedOutAt)));
     if (!list.length) {
-        host.innerHTML = `<div class="empty-state">${shows.length ? "No shows match your search." : "No show sign-outs yet. Use <b>+ New Show Sign-Out</b> to start one."}</div>`;
+        host.innerHTML = `<div class="empty-state">${shows.length ? "No shows match your search." : "No show sign-outs yet. Use <b>+ New Show Sign-Out</b> to start one."}</div>` + olderShowsBar();
         return;
     }
     host.innerHTML = `<div class="show-list">${list.map(s => {
@@ -71,10 +88,12 @@ function renderShows() {
                 <span><span class="show-title">${esc(s.title)}</span><br><span class="show-meta">${isJobShow(s) ? `<span class="shared-tag" title="Shared with the show's crew">👥 crew list</span> ` : ""}${fmtDate(s.showDate)}${s.venue ? ` · ${venueTag(s.venue)}` : ""} · ${esc(s.createdByName || s.createdBy)} · ${plural((s.items || []).length, "line")}, ${total} pcs</span></span>
                 <span class="right">${status}</span>
             </button>${body}</div>`;
-    }).join("")}</div>`;
+    }).join("")}</div>` + olderShowsBar();
 }
 
 $("shows-container").addEventListener("click", async e => {
+    const ob = e.target.closest("[data-old-shows]");
+    if (ob) return loadOlderShows(ob.dataset.oldShows === "refresh");
     const t = e.target.closest("[data-show-toggle]");
     if (t) { const id = t.dataset.showToggle; showOpen.has(id) ? showOpen.delete(id) : showOpen.add(id); return renderShows(); }
     const all = e.target.closest("[data-show-all]");

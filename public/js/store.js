@@ -84,17 +84,23 @@ function createFirebaseStore() {
             if (!snap.exists) await ref.set(newPendingProfile(user.email, ""));
         },
         watchDoc: (col, id, cb, onErr) =>
-            db.collection(col).doc(id).onSnapshot(s => cb(s.exists ? { id: s.id, ...s.data() } : null), onErr),
+            db.collection(col).doc(id).onSnapshot(s => { if (!s.metadata.fromCache && !s.metadata.hasPendingWrites) ReadStats.add(col, 1); cb(s.exists ? { id: s.id, ...s.data() } : null); }, onErr),
         // Second argument: true while the answer comes only from what this browser already holds (not yet confirmed by the server).
-        watchCol: (col, q, cb, onErr) => query(col, q).onSnapshot(s => cb(rows(s), s.metadata.fromCache), onErr),
-        getAll: async (col, q) => rows(await query(col, q).get()),
+        watchCol: (col, q, cb, onErr) => {
+            let served = false;
+            return query(col, q).onSnapshot(s => {
+                if (!s.metadata.fromCache) { ReadStats.add(col, served ? s.docChanges().filter(c => !c.doc.metadata.hasPendingWrites).length : s.size || 1); served = true; }
+                cb(rows(s), s.metadata.fromCache);
+            }, onErr);
+        },
+        getAll: async (col, q) => { const r = rows(await query(col, q).get()); ReadStats.add(col, r.length || 1); return r; },
         // How many docs match (1 read per 1,000 counted). Null where this SDK build can't count.
         async count(col, q) {
             const ref = query(col, q);
             if (typeof ref.count !== "function") return null;
             return (await ref.count().get()).data().count;
         },
-        async getDoc(col, id) { const s = await db.collection(col).doc(id).get(); return s.exists ? { id: s.id, ...s.data() } : null; },
+        async getDoc(col, id) { const s = await db.collection(col).doc(id).get(); ReadStats.add(col, 1); return s.exists ? { id: s.id, ...s.data() } : null; },
         newId: col => db.collection(col).doc().id,
         // ops: [{ op: "set" | "merge" | "update" | "delete", col, id, data }]
         // Atomic up to 450 ops (Firestore caps a batch at 500); bigger jobs (imports) are chunked.

@@ -18,12 +18,12 @@ const asset = (id, cat, extra) => ({ id, category: cat, brand: "Shure", model: "
 // ---------------------------------------------------------------- build
 {
     const assets = [];
-    for (let i = 0; i < 4100; i++) assets.push(asset("a" + i, "Cables"));
+    for (let i = 0; i < 1700; i++) assets.push(asset("a" + i, "Cables"));
     assets.push(asset("m1", "Wired Mics"));
     const { bundles, meta } = B.build(assets, 0);
-    check("build: a category over 2,000 assets is split into parts", Object.keys(bundles).filter(b => b.startsWith("cables-")).length === 3
-        && Object.keys(bundles["cables-1"].items).length === 2000 && Object.keys(bundles["cables-3"].items).length === 100);
-    check("build: meta lists every bundle with its count", meta.seq === 1 && meta.bundles["wired-mics-1"].n === 1 && meta.bundles["cables-2"].n === 2000);
+    check("build: a category over 800 assets is split into parts", Object.keys(bundles).filter(b => b.startsWith("cables-")).length === 3
+        && Object.keys(bundles["cables-1"].items).length === 800 && Object.keys(bundles["cables-3"].items).length === 100);
+    check("build: meta lists every bundle with its count", meta.seq === 1 && meta.bundles["wired-mics-1"].n === 1 && meta.bundles["cables-2"].n === 800);
     const big = []; for (let i = 0; i < 1500; i++) big.push(asset("b" + i, "Notes", { remarks: "x".repeat(800) }));
     const sized = B.build(big, 4);
     check("build: bundles also split before they reach the 1 MB record limit", Object.keys(sized.bundles).length >= 2
@@ -46,7 +46,7 @@ const asset = (id, cat, extra) => ({ id, category: cat, brand: "Shure", model: "
         ops["cables-1"].dels.join() === "x1" && ops["wired-mics-1"].sets.x1.category === "Wired Mics" && r.meta.bundles["cables-1"].n === 0 && r.meta.bundles["wired-mics-1"].n === 2);
     r = B.expand([{ op: "set", col: "inventory", id: "n1", data: { category: "Speakers", model: "K12" } }], meta, new Map());
     check("expand: a new category gets a new bundle", r.bundleOps[0].isNew && r.bundleOps[0].bid === "speakers-1" && r.meta.bundles["speakers-1"].n === 1);
-    const full = JSON.parse(JSON.stringify(meta)); full.bundles["cables-1"].n = 2000;
+    const full = JSON.parse(JSON.stringify(meta)); full.bundles["cables-1"].n = 800;
     r = B.expand([{ op: "set", col: "inventory", id: "n2", data: { category: "Cables", model: "XLR" } }], full, new Map());
     check("expand: a full bundle overflows into part 2", r.bundleOps[0].bid === "cables-2" && r.bundleOps[0].isNew);
     r = B.expand([{ op: "delete", col: "inventory", id: "m1" }], meta, new Map([["m1", { category: "Wired Mics" }]]));
@@ -103,7 +103,7 @@ function fakeStore(docs) {
     await tick();
     check("watch: first open downloads only the visible bundles", rows.length === 2 && st.reads === 1);
     // apply a save the way store.commit would
-    const save = (ops) => {
+    const save = (ops, own) => {
         const meta = docs.invMeta.changes, cur = new Map();
         ops.filter(o => o.op !== "set").forEach(o => cur.set(o.id, docs.inventory[o.id] ? JSON.parse(JSON.stringify(docs.inventory[o.id])) : null));
         const r = B.expand(ops, meta, cur);
@@ -113,6 +113,7 @@ function fakeStore(docs) {
             Object.assign(d.items, b.sets); b.dels.forEach(id => delete d.items[id]); d.v = b.v;
         });
         docs.invMeta.changes = r.meta;
+        if (own) B.ownTx.push({ seq: r.meta.seq, ops: r.bundleOps.map(b => ({ bid: b.bid, sets: b.sets, dels: b.dels })) });
         st.fire();
     };
     st.reads = 0;
@@ -127,6 +128,15 @@ function fakeStore(docs) {
     save([{ op: "update", col: "inventory", id: "m1", data: { category: "Cables" } }]);
     await tick();
     check("watch: an asset moved into your category appears", rows.some(r => r.id === "m1") && st.reads === 1);
+    st.reads = 0;
+    save([{ op: "update", col: "inventory", id: "a1", data: { remarks: "mine" } }], true);
+    await tick();
+    check("watch: an edit this browser saved itself is applied from memory, no read at all", rows.find(r => r.id === "a1").remarks === "mine" && st.reads === 0);
+    st.reads = 0;
+    save([{ op: "update", col: "inventory", id: "a1", data: { remarks: "mine2" } }], true);
+    save([{ op: "update", col: "inventory", id: "m1", data: { remarks: "theirs" } }]);
+    await tick();
+    check("watch: other people's edits are still read back, even right after one of mine", rows.find(r => r.id === "a1").remarks === "mine2" && rows.find(r => r.id === "m1").remarks === "theirs" && st.reads === 1);
     save([{ op: "delete", col: "inventory", id: "a2" }]);
     await tick();
     check("watch: a deleted asset disappears", !rows.some(r => r.id === "a2") && rows.length === 2);

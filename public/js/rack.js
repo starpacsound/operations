@@ -345,7 +345,10 @@ async function finishRound(round, silent) {
         return { id: a.id, label: assetLabel(a), model: equipName(a), category: a.category || "", location: dv(a.itemLocation), condition: a.condition,
             qty: units(a), checked: !!(t && t.checked), by: t && t.checked ? (t.byName || t.by) : "", at: t && t.checked ? t.at : "" };
     }).sort((x, y) => byNum(x.location, y.location) || byNum(x.label, y.label));
-    const disc = discrepancies.filter(d => scope.some(a => a.id === d.assetId) && String(d.at) >= String(r.startedAt)).length;
+    // Only pending reports stay live now, so count this round's reports (any status) with one read of just those.
+    let roundDisc = discrepancies;
+    try { roundDisc = await store.getAll("discrepancies", { where: [["at", ">=", String(r.startedAt)]] }); } catch (e) { /* not allowed to list them: use what's loaded */ }
+    const disc = roundDisc.filter(d => scope.some(a => a.id === d.assetId) && String(d.at) >= String(r.startedAt)).length;
     const ops = [
         { op: "update", col: "audits", id: r.id, data: { status: "closed", closedBy: myEmail(), closedByName: myName(), closedAt: nowIso(),
             summary: { total: items.length, checked: done, discrepancies: disc, items } } },

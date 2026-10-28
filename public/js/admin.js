@@ -518,7 +518,8 @@ function renderBranding() {
         ${idlePanelHtml()}
         ${venuesPanelHtml()}
         ${conditionsPanelHtml()}
-        ${bundlesPanelHtml()}`;
+        ${bundlesPanelHtml()}
+        ${readsPanelHtml()}`;
     bindVenuesPanel();
     bindConditionsPanel();
     $("br-idle").addEventListener("change", async e => {
@@ -532,6 +533,7 @@ function renderBranding() {
         } catch (er) { toast(friendlyError(er), "err"); }
     });
     $("bd-build").addEventListener("click", buildBundles);
+    $("rd-refresh").addEventListener("click", () => { $("rd-body").innerHTML = readsTableHtml(); });
 
     const err = m => { const p = $("br-error"); p.textContent = m || ""; p.classList.toggle("hidden", !m); };
     $("br-name").addEventListener("input", e => { brandDraft.appName = e.target.value; document.querySelectorAll(".brand-editor .brand-name-text, .preview-login b").forEach(el => { el.textContent = e.target.value || "Untitled"; }); if (!brandDraft.logo) document.querySelectorAll(".brand-editor .brand-mark").forEach(el => { el.textContent = initials(e.target.value); }); });
@@ -735,6 +737,20 @@ function bundlesPanelHtml() {
         ${status}
         <div><button type="button" class="btn btn-sm" id="bd-build">${bundlesLegacy ? "Build bundles" : "Rebuild bundles"}</button></div>
         <p class="muted small">Building reads every asset once (one read each) and takes a few seconds. Rebuild only if something looks out of step; everyone's app then downloads fresh bundles once.</p>
+    </div>`;
+}
+// ---------- Database reads on this device (estimate, since the app was opened) ----------
+function readsTableHtml() {
+    const rows = Object.entries(ReadStats.by).sort((a, b) => b[1] - a[1]);
+    return rows.length ? `<table class="data-table"><thead><tr><th>List</th><th class="num">Reads</th></tr></thead><tbody>${rows.map(([c, n]) => `<tr><td>${esc(c)}</td><td class="num">${n.toLocaleString()}</td></tr>`).join("")}
+        <tr><td><b>Total</b></td><td class="num"><b>${ReadStats.total().toLocaleString()}</b></td></tr></tbody></table>` : `<p class="muted small">Nothing read yet.</p>`;
+}
+function readsPanelHtml() {
+    return `<h2 class="section-title">Database reads on this device</h2>
+    <div class="panel form-stack">
+        <p class="muted small">An estimate of the records this browser has read since you opened the app, by list. The free plan allows 50,000 reads a day across everyone, so this shows what a single open costs. Older loans and shows only count once someone loads them.</p>
+        <div id="rd-body">${readsTableHtml()}</div>
+        <div><button type="button" class="btn btn-sm" id="rd-refresh">Refresh</button></div>
     </div>`;
 }
 async function buildBundles() {
