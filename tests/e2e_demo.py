@@ -780,6 +780,8 @@ with sync_playwright() as p:
     logout(page); login(page, "admin@showbase.com"); page.wait_for_timeout(300)
     check("logs: opening the app reads no log entries", ev(page, "logs.length") == 0 and ev(page, "logStarted") is False)
     go(page, "logs"); page.wait_for_timeout(200)
+    check("logs: opening the page reads nothing until 'Load newest 50 entries' is pressed (v5.11)", ev(page, "logs.length") == 0 and ev(page, "logStarted") is False and page.is_visible("#log-start"))
+    page.click("#log-start"); page.wait_for_timeout(250)
     check("logs: only the newest 50 entries load", ev(page, "logs.length") == 50 and page.is_visible("#log-more"))
     page.click("#log-more"); page.wait_for_timeout(200)
     check("logs: 'Load older' adds the next 50", ev(page, "logs.length") == 100 and len(set(ev(page, "logs.map(l => l.id)"))) == 100)

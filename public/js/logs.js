@@ -24,7 +24,8 @@ function filterLogs(list, f) {
 const LOG_PAGE = 50;
 let logLive = [], logOlder = new Map(), logNoMore = false, logLoading = false, logStarted = false, logWatch = null;
 function resetLogPages() { logLive = []; logOlder = new Map(); logNoMore = false; logLoading = false; logs = []; logStarted = false; }
-// Opening the app costs no log reads; the newest page starts listening when Log History is first opened.
+// Opening the app costs no log reads, and neither does opening this page: the newest page only starts listening when someone
+// presses "Load newest 50 entries" (v5.11), so a stray click can't cost 50 reads.
 function startLogs() {
     if (logStarted || !logWatch || !tabOn("logs")) return;
     logStarted = true;
@@ -63,7 +64,12 @@ const actionClass = a => /deleted|replaced|reject|reset|disabled|missing|cancel/
 function renderLogs() {
     const body = $("log-list");
     if (!body || !tabOn("logs")) return;
-    startLogs();
+    if (!logStarted) {
+        body.innerHTML = `<tr><td colspan="6" class="empty-cell">The history isn't loaded yet, so opening this page costs no reads.<br><button type="button" class="btn btn-primary" id="log-start">Load newest ${LOG_PAGE} entries</button></td></tr>`;
+        const more = $("log-more"); if (more) more.classList.add("hidden");
+        $("log-footnote").textContent = "";
+        return;
+    }
     const sel = $("log-action");
     const cur = sel.value;
     const actions = uniq(logs.map(l => l.action)).sort();
@@ -89,6 +95,8 @@ function renderLogs() {
     $("log-footnote").textContent = `Showing ${shown.length} of ${list.length} matching entries · ${logs.length} newest loaded`
         + (logNoMore ? " (that's everything)." : ". Search and filters only look through loaded entries; load older ones to go further back.");
 }
+
+document.addEventListener("click", e => { if (e.target.closest("#log-start")) { startLogs(); renderLogs(); } });
 
 // ---------- PDF ----------
 function openLogPdf() {
