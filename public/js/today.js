@@ -15,7 +15,8 @@ const upcomingJobs = () => myJobs.filter(j => j.date >= today()).sort((a, b) => 
 const shortRoles = j => (j.manpower || []).map(x => ({ role: x.role, need: +x.qty || 0, have: (j.crew || []).filter(c => c.role === x.role).length }))
     .filter(x => x.have < x.need);
 
-// Bookers: the extra reads run only while Today is open (switchView calls this).
+// Bookers: the two lists start the first time Today opens and then stay on until sign-out (v5.11), so going back and forth
+// between pages costs nothing; a live list only pays for what changes.
 function syncToday() {
     const on = currentView === "today" && !!profile;
     if (on && canSeeAll() && !todayWeekUnsub) {
@@ -31,7 +32,6 @@ function syncToday() {
             rows => { todayNextGrid = rows; if (currentView === "today") requestRender(true); },
             err => { console.error(err); });
     }
-    if (!on) stopToday();
 }
 function stopTodayGrid() {
     if (todayGridUnsub) { try { todayGridUnsub(); } catch (e) { /* ignore */ } }
