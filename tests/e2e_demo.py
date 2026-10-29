@@ -1400,6 +1400,16 @@ with sync_playwright() as p:
     page.fill("#lm-form [data-fq]", str(q0)); page.fill("#lm-desc", "too many"); page.click("#lm-form button[type=submit]"); page.wait_for_timeout(300)
     check("v5.13: can't report more units than are available", "faulty units must be" in page.inner_text("#lm-error") and ev(page, f"assetById({G!r}).faultyQty") == 4)
     page.click("#lm-form [data-close]"); page.wait_for_timeout(200)
+    # v5.14: a long rack category splits into one sub-group per model
+    ev(page, "(() => { for (let i = 0; i < 12; i++) inventory.push({ id: 't14-' + i, kind: 'detailed', category: 'Wireless', brand: 'Shure', model: i < 8 ? 'ADX 2' : 'AD4D', description: i < 8 ? 'Handheld Transmitter' : 'Receiver', itemSpace: 'Sound Store', itemLocation: 'Test Rack', condition: 'Available', internalAssetNo: 'T14 #' + i, qty: 1 }); })()")
+    go(page, "rack"); page.wait_for_timeout(200)
+    ev(page, "(() => { rackState.rack.set('L|Sound Store|Test Rack', true); rackState.rack.set('C|Sound Store|Test Rack|Wireless', true); renderRack(); })()"); page.wait_for_timeout(200)
+    loc = page.locator(".rack-loc[data-loc='Test Rack']")
+    check("v5.14: an open long category lists its models as sub-groups, rows hidden until one is opened", loc.locator(".rack-sub-head").count() == 2 and loc.locator("tbody tr").count() == 0)
+    check("v5.14: a sub-group shows its model, count and description", "Shure ADX 2" in loc.inner_text() and "(8)" in loc.inner_text() and "Handheld Transmitter" in loc.inner_text())
+    loc.locator(".rack-sub-head", has_text="ADX 2").click(); page.wait_for_timeout(200)
+    shot(page, "v514-rack")
+    check("v5.14: opening a sub-group shows just that model's 8 rows", page.locator(".rack-loc[data-loc='Test Rack'] tbody tr").count() == 8)
     check("no console / page errors, no native dialogs", not errors)
     if errors:
         print("\n".join(errors[:10]))

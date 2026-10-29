@@ -795,3 +795,12 @@ input[data-combo]:not([readonly]):not(:disabled) { background-image: linear-grad
 .units-note b { color: var(--danger, #b3261e); }
 .fault-units { display: inline-flex; align-items: center; gap: .35rem; }
 .fault-units input { width: 4.5rem; }
+
+/* v5.14: model sub-groups inside a rack category */
+.rack-sub + .rack-sub { margin-top: .15rem; }
+.rack-sub-head { display: flex; align-items: center; gap: .5rem; width: 100%; padding: .35rem .6rem; background: none; border: 0; border-radius: 6px; text-align: left; cursor: pointer; color: var(--text-2); font: 500 var(--fs-sm) var(--font); }
+.rack-sub-head:hover { background: var(--surface-2); }
+.rack-sub-head .count { color: var(--muted); font-weight: 400; }
+.rack-sub-head .sub-desc { color: var(--muted); font-size: .85em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1 1 8rem; }
+.rack-sub-head .pills { margin-left: auto; display: flex; gap: .25rem; flex-wrap: wrap; }
+.rack-sub-body { padding: 0 0 .3rem 1.1rem; }

@@ -79,7 +79,7 @@ function rackExpandAll(mode, open) {
     items.forEach(a => {
         const s = dv(a.itemSpace) || UNASSIGNED, l = dv(a.itemLocation) || UNASSIGNED, c = a.category || "Uncategorised";
         rackState[mode].set(`L|${s}|${l}`, open);
-        if (cats) rackState[mode].set(`C|${s}|${l}|${c}`, open);
+        if (cats) { rackState[mode].set(`C|${s}|${l}|${c}`, open); rackState[mode].set(`S|${s}|${l}|${c}|${subKeyOf(a)}`, open); }
     });
     if (!cats) toast(`${items.length.toLocaleString()} assets is too many to open at once, so only the locations are open. Pick a space or category, or search, then Expand all.`);
     mode === "rack" ? renderRack() : renderCheck();
@@ -174,13 +174,49 @@ function locHtml(ctx, space, loc) {
                     <span class="chev ${cOpen ? "open" : ""}">▶</span>${esc(cat)} <span class="count">(${list.reduce((n, a) => n + units(a), 0)})</span>
                     <span class="pills">${isCheck ? progressHtml(doneOf(list), list.length) : Object.entries(cc).map(([k, v]) => `<span class="pill ${condClass(k)}">${v} ${esc(COND_SHORT[k] || k)}</span>`).join("")}</span>
                 </button>
-                ${cOpen ? `<div class="rack-cat-body"><div class="table-scroll"><table class="asset-table leaf-table ${inline ? "inline-on" : ""}">
-                    <thead>${headRow}</thead><tbody>${(all ? list : list.slice(0, CAT_ROWS)).map(leafRow).join("")}</tbody></table></div>
-                    ${list.length > CAT_ROWS && !all ? `<div class="cat-more"><button type="button" class="btn btn-sm" data-cat-all="${esc(cKey)}">Show all ${list.length.toLocaleString()}</button> <span class="muted small">Showing the first ${CAT_ROWS}</span></div>` : ""}</div>` : ""}
+                ${cOpen ? `<div class="rack-cat-body">${subsOf(list) ? subsHtml(ctx, mode, cKey, list) : tableHtml(ctx, mode, cKey, list)}</div>` : ""}
             </div>`;
         }).join("")}</div>` : ""}
     </div>`;
 }
+// v5.14: a long category splits into one sub-group per model (e.g. Wireless -> Shure ADX 2, Sennheiser EW-DX SKM-S), each opened on its own.
+const SUB_MIN = 8;
+const subKeyOf = a => `${dv(a.brand) === "Generic" ? "" : dv(a.brand)} ${dv(a.model)}`.trim() || "No model";
+function subsOf(list) {
+    if (list.length <= SUB_MIN) return null;
+    const m = new Map();
+    list.forEach(a => { const k = subKeyOf(a); if (!m.has(k)) m.set(k, []); m.get(k).push(a); });
+    return m.size >= 2 ? m : null;
+}
+function tableHtml(ctx, mode, key, list) {
+    const all = showAllCats[mode].has(key);
+    return `<div class="table-scroll"><table class="asset-table leaf-table ${ctx.inline ? "inline-on" : ""}">
+        <thead>${ctx.headRow}</thead><tbody>${(all ? list : list.slice(0, CAT_ROWS)).map(ctx.leafRow).join("")}</tbody></table></div>
+        ${list.length > CAT_ROWS && !all ? `<div class="cat-more"><button type="button" class="btn btn-sm" data-cat-all="${esc(key)}">Show all ${list.length.toLocaleString()}</button> <span class="muted small">Showing the first ${CAT_ROWS}</span></div>` : ""}`;
+}
+function subsHtml(ctx, mode, cKey, list) {
+    const { isCheck, searching } = ctx;
+    const subs = subsOf(list);
+    const doneOf = l => isCheck ? l.filter(a => isChecked(a.id)).length : 0;
+    return [...subs.keys()].sort((x, y) => byNum(x, y)).map(name => {
+        const items = subs.get(name);
+        const sKey = `S|${cKey.slice(2)}|${name}`;
+        const sOpen = searching || nodeOpen(mode, sKey, false);
+        const cc = {};
+        items.forEach(a => { cc[a.condition] = (cc[a.condition] || 0) + units(a); });
+        const desc = dv((items.find(a => dv(a.description)) || {}).description);
+        const rows = sOpen ? items.map(a => [assetLabel(a), a]).sort((x, y) => byNum(x[0], y[0])).map(x => x[1]) : items;
+        return `<div class="rack-sub">
+            <button type="button" class="rack-sub-head" data-node="${esc(sKey)}" aria-expanded="${sOpen}">
+                <span class="chev ${sOpen ? "open" : ""}">▶</span><b>${esc(name)}</b> <span class="count">(${items.reduce((n, a) => n + units(a), 0)})</span>
+                ${desc ? `<span class="sub-desc">${esc(desc)}</span>` : ""}
+                <span class="pills">${isCheck ? progressHtml(doneOf(items), items.length) : Object.entries(cc).map(([k, v]) => `<span class="pill ${condClass(k)}">${v} ${esc(COND_SHORT[k] || k)}</span>`).join("")}</span>
+            </button>
+            ${sOpen ? `<div class="rack-sub-body">${tableHtml(ctx, mode, sKey, rows)}</div>` : ""}
+        </div>`;
+    }).join("");
+}
+
 // Redraw just the location an open/close or "Show all" happened in.
 function redrawLoc(mode, el) {
     const box = el.closest(".rack-loc"), ctx = treeCtx[mode];

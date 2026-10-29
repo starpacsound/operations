@@ -470,3 +470,6 @@ What is enforced where: the **database rules** enforce every permission (approva
 - A fault report on a general asset asks "Faulty units" (1 to the units still available). The asset keeps its condition; `faultyQty` counts the faulty units and `faultPendingQty` those awaiting a Co-Admin. The catalogue shows "N available · M faulty" and "M awaiting confirmation" under the Qty.
 - Several reports can be open on one general asset at once. Confirm can take fewer units than reported (the rest go back to available); Reject takes the whole report off; Send to repair leaves the count; Fixed / Repaired puts the units back (a retired condition removes them from the quantity instead).
 - Rules: `isUnitFaultReport` lets a member raise the counts by exactly the units in their own report; the other steps are normal workflow writes (`faultyQty`, `faultPendingQty` added to `wfKeys`). Backup Sheet: `faultyQty` appended to the Inventory and Deleted Inventory columns.
+
+## v5.14 - model sub-groups in Rack Layout and Inventory Check
+- A rack category with more than 8 assets and at least 2 models splits into one sub-group per brand + model (e.g. Wireless > Shure ADX 2, Sennheiser EW-DX SKM-S). Each shows its count, the model's description and condition pills (or check progress), and opens on its own. Short categories stay a plain table. Expand all opens the sub-groups too.
