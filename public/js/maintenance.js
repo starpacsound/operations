@@ -19,7 +19,7 @@ function ticketAssetCell(t) {
     const a = ticketAsset(t) || t;
     const ids = [canViewCol("serialNo") && dv(a.serialNo) ? `S/N ${esc(dv(a.serialNo))}` : "",
         canViewCol("assetNo") && dv(a.assetNo) ? esc(dv(a.assetNo)) : ""].filter(Boolean).join(" · ");
-    return `<div class="asset-cell"><b>${esc(ticketAsset(t) ? assetLabel(a) : t.assetLabel)}</b><span>${esc(`${dv(a.brand)} ${dv(a.model)}`)} · ${esc(a.category)}</span>
+    return `<div class="asset-cell"><b>${esc(ticketAsset(t) ? assetLabel(a) : t.assetLabel)}</b><span>${esc(`${dv(a.brand)} ${dv(a.model)}`)} · ${esc(a.category)}${t.faultQty ? ` · <b>${t.faultQty} faulty unit${t.faultQty === 1 ? "" : "s"}</b>` : ""}</span>
         ${ids ? `<span class="ids">${ids}</span>` : ""}${ticketAsset(t) ? "" : `<span class="warn-text">asset no longer in inventory</span>`}</div>`;
 }
 
@@ -153,11 +153,12 @@ function openLogMaintenance(preselectId, opts) {
     opts = opts || {};
     if (!can("maintenance", "submit")) return;
     const selected = new Map();
+    const faultQtys = new Map();   // general assets: how many units this report is about
     const mgr = canVerify();
     const openFor = new Map(tickets.map(t => [t.assetId, t]));
     Combo.register("maintAsset", () => inventory.map(a => ({
-        value: assetLabel(a), data: a, disabled: openFor.has(a.id) || selected.has(a.id),
-        sub: [`${dv(a.brand)} ${dv(a.model)}`, canViewCol("assetNo") && a.assetNo, canViewCol("serialNo") && a.serialNo && `S/N ${a.serialNo}`,
+        value: assetLabel(a), data: a, disabled: (openFor.has(a.id) && !isGeneral(a)) || selected.has(a.id) || (isGeneral(a) && usableUnits(a) < 1),
+        sub: [`${dv(a.brand)} ${dv(a.model)}`, isGeneral(a) && `${usableUnits(a)} of ${units(a)} available`, canViewCol("assetNo") && a.assetNo, canViewCol("serialNo") && a.serialNo && `S/N ${a.serialNo}`,
             openFor.has(a.id) ? stageLabel(openFor.get(a.id).stage) : selected.has(a.id) ? "selected" : ""].filter(Boolean).join(" · "),
         search: [a.assetNo, a.serialNo, a.code, a.brand, a.model].filter((v, i) => i > 2 || canViewCol(["assetNo", "serialNo", "code"][i])).join(" ")
     })));
@@ -205,20 +206,27 @@ function openLogMaintenance(preselectId, opts) {
                 root.querySelector("#lm-selected").innerHTML = selected.size ? Array.from(selected.values()).map(a => `
                     <div class="sel-asset">
                         <div class="sel-head"><b>${esc(assetLabel(a))}</b><span>${esc(a.brand)} ${esc(a.model)}</span>
-                            <span class="pill ${condClass(a.condition)}">${esc(a.condition)}</span>
+                            ${isGeneral(a)
+                                ? `<label class="fault-units">Faulty units <input type="number" min="1" max="${usableUnits(a)}" value="${faultQtys.get(a.id) || 1}" data-fq="${esc(a.id)}"> <span class="muted small">of ${usableUnits(a)} available</span></label>`
+                                : `<span class="pill ${condClass(a.condition)}">${esc(a.condition)}</span>`}
                             <button type="button" class="icon-btn" data-remove="${esc(a.id)}" title="Remove" aria-label="Remove">✕</button></div>
                         <div class="sel-grid">${fields.map(([k, l]) => `<div><span>${l}</span>${esc(dv(a[k]) || "—")}</div>`).join("")}</div>
                     </div>`).join("") : `<div class="muted small sel-empty">No assets selected yet - search above.</div>`;
             };
             const add = a => {
                 if (!a) return;
-                if (openFor.has(a.id)) return err(`${assetLabel(a)} already has an open ticket (${stageLabel(openFor.get(a.id).stage)}).`);
+                if (openFor.has(a.id) && !isGeneral(a)) return err(`${assetLabel(a)} already has an open ticket (${stageLabel(openFor.get(a.id).stage)}).`);
+                if (isGeneral(a) && usableUnits(a) < 1) return err(`${assetLabel(a)} has no available units left to report.`);
                 err("");
                 selected.set(a.id, a);
                 search.value = "";
                 renderSelected();
             };
             search.addEventListener("combo:pick", e => add(e.detail.data));
+            root.querySelector("#lm-selected").addEventListener("input", e => {
+                const q = e.target.closest("[data-fq]");
+                if (q) faultQtys.set(q.dataset.fq, parseInt(q.value, 10) || 0);
+            });
             root.querySelector("#lm-selected").addEventListener("click", e => {
                 const r = e.target.closest("[data-remove]");
                 if (r) { selected.delete(r.dataset.remove); renderSelected(); }
@@ -242,11 +250,16 @@ function openLogMaintenance(preselectId, opts) {
                     newLocation: root.querySelector("#lm-loc").value.trim(),
                     faultDescription: desc
                 };
+                for (const a of selected.values()) {
+                    if (!isGeneral(a) || mode === "log") continue;
+                    const n = faultQtys.get(a.id) || 1;
+                    if (n < 1 || n > usableUnits(a)) return err(`${assetLabel(a)}: faulty units must be 1 to ${usableUnits(a)}.`);
+                }
                 const btn = root.querySelector("button[type=submit]");
                 btn.disabled = true;
                 try {
                     const ops = [];
-                    selected.forEach(a => ops.push(...newTicketOps(a, v, mode)));
+                    selected.forEach(a => ops.push(...newTicketOps(a, isGeneral(a) && mode !== "log" ? { ...v, faultQty: faultQtys.get(a.id) || 1 } : v, mode)));
                     await commitOps(ops);
                     closeDynModal();
                     toast(mode === "request" ? `Fault report submitted for ${selected.size} asset(s)` : mode === "confirm" ? `${selected.size} asset(s) filed as Confirmed Faulty` : "Maintenance logged");
@@ -272,7 +285,16 @@ function newTicketOps(a, v, mode) {
     };
     const ops = [{ op: "set", col: "maintenance", id, data: ticket }];
     let changes = [];
-    if (mode === "request") {
+    if (isGeneral(a) && mode !== "log") {
+        // v5.13: a general asset keeps its condition; only the faulty units are counted (the rest stay available).
+        const n = v.faultQty;
+        const patch = { faultyQty: faultyUnits(a) + n };
+        if (mode === "request") patch.faultPendingQty = pendingUnits(a) + n;
+        const m = wfAssetOps(a, patch, "maintenance", id, stage);
+        ops.push(...m.ops);
+        if (mode === "confirm") Object.assign(ticket, { verifiedBy: myEmail(), verifiedAt: now, verifyNotes: "Confirmed on submission", confirmedCondition: "Faulty" });
+        if (mode === "confirm") ticket.history.push(histEntry(stage));
+    } else if (mode === "request") {
         // The asset shows Faulty straight away, marked "awaiting confirmation"; a rejected report puts the old condition back.
         const patch = { faultStatus: "pending" };
         if (a.condition !== "Faulty") { patch.condition = "Faulty"; patch.condBefore = a.condition || "Available"; }
@@ -283,8 +305,9 @@ function newTicketOps(a, v, mode) {
         }
     } else {
         const patch = {};
-        if (mode === "confirm") { patch.condition = v.requestedCondition || "Faulty"; patch.faultStatus = "confirmed"; patch.condBefore = ""; }
-        else if (v.requestedCondition) patch.condition = v.requestedCondition;
+        const rc = isGeneral(a) && v.requestedCondition === "Faulty" ? "" : v.requestedCondition;   // a general line is never marked Faulty as a whole
+        if (mode === "confirm") { patch.condition = rc || "Faulty"; patch.faultStatus = "confirmed"; patch.condBefore = ""; }
+        else if (rc) patch.condition = rc;
         if (v.newSpace) patch.itemSpace = v.newSpace;
         if (v.newLocation) patch.itemLocation = v.newLocation;
         const m = wfAssetOps(a, patch, "maintenance", id, stage);
@@ -295,7 +318,8 @@ function newTicketOps(a, v, mode) {
         ticket.history.push(histEntry(stage));
     }
     const action = mode === "request" ? "Maintenance request" : mode === "confirm" ? "Maintenance confirmed" : `Maintenance log: ${v.logType}`;
-    ops.push(makeLog(action, a, changes, v.faultDescription, { ticketId: id }));
+    const unitNote = v.faultQty ? `${v.faultQty} unit${v.faultQty === 1 ? "" : "s"} · ` : "";
+    ops.push(makeLog(action, a, changes, unitNote + v.faultDescription, { ticketId: id }));
     return ops;
 }
 
@@ -311,7 +335,9 @@ function openVerifyModal(t) {
                 <p class="desc">${esc(t.faultDescription)}</p></div>
             </div>
             <div class="form-grid">
-                <div class="field"><label for="vf-cond">Confirmed condition</label><select id="vf-cond">${condOptions(t.requestedCondition || "Faulty")}</select></div>
+                ${a && isGeneral(a) && t.faultQty
+                    ? `<div class="field"><label for="vf-qty">Units confirmed faulty <span class="hint">reported: ${t.faultQty}</span></label><input type="number" id="vf-qty" min="1" max="${t.faultQty}" value="${t.faultQty}"></div>`
+                    : `<div class="field"><label for="vf-cond">Confirmed condition</label><select id="vf-cond">${condOptions(t.requestedCondition || "Faulty")}</select></div>`}
                 <div class="field"><label>Current condition · location</label><input type="text" readonly value="${esc(a ? `${a.condition} · ${[dv(a.itemSpace), dv(a.itemLocation)].filter(Boolean).join(" › ")}` : "—")}"></div>
                 ${placeFields("vf", t.newSpace || (a ? dv(a.itemSpace) : ""), t.newLocation || (a ? dv(a.itemLocation) : ""), { space: "Move to item space", location: "Move to item location" })}
                 <div class="field span2"><label for="vf-notes">Verification notes *</label>
@@ -326,15 +352,25 @@ function openVerifyModal(t) {
                 const notes = root.querySelector("#vf-notes").value.trim();
                 const errEl = root.querySelector("#vf-error");
                 if (!notes) { errEl.textContent = "Add verification notes."; errEl.classList.remove("hidden"); return; }
-                const cond = root.querySelector("#vf-cond").value;
-                const patch = { condition: cond, itemSpace: root.querySelector("#vf-space").value.trim(), itemLocation: root.querySelector("#vf-loc").value.trim(),
-                    faultStatus: cond === "Available" ? "" : "confirmed", condBefore: "" };
+                const unit = a && isGeneral(a) && t.faultQty;
+                let cond = "Faulty", confirmedQty = 0;
+                if (unit) {
+                    confirmedQty = parseInt(root.querySelector("#vf-qty").value, 10) || 0;
+                    if (confirmedQty < 1 || confirmedQty > t.faultQty) { errEl.textContent = `Confirm 1 to ${t.faultQty} units (use Reject if none are faulty).`; errEl.classList.remove("hidden"); return; }
+                } else cond = root.querySelector("#vf-cond").value;
+                const patch = unit
+                    // units that were reported but not confirmed go back to available
+                    ? { itemSpace: root.querySelector("#vf-space").value.trim(), itemLocation: root.querySelector("#vf-loc").value.trim(),
+                        faultyQty: Math.max(0, faultyUnits(a) - (t.faultQty - confirmedQty)), faultPendingQty: Math.max(0, pendingUnits(a) - t.faultQty) }
+                    : { condition: cond, itemSpace: root.querySelector("#vf-space").value.trim(), itemLocation: root.querySelector("#vf-loc").value.trim(),
+                        faultStatus: cond === "Available" ? "" : "confirmed", condBefore: "" };
                 const m = wfAssetOps(a, patch, "maintenance", t.id, "confirmed");
                 try {
                     await commitOps([
                         { op: "update", col: "maintenance", id: t.id, data: {
                             stage: "confirmed", verifiedBy: myEmail(), verifiedAt: nowIso(), verifyNotes: notes,
-                            confirmedCondition: cond, history: [...(t.history || []), histEntry("confirmed", notes)] } },
+                            confirmedCondition: cond, ...(unit ? { faultQty: confirmedQty, reportedQty: t.faultQty } : {}),
+                            history: [...(t.history || []), histEntry("confirmed", notes)] } },
                         ...m.ops,
                         makeLog("Maintenance verified", a || { label: t.assetLabel }, m.changes, notes, { ticketId: t.id })
                     ]);
@@ -353,7 +389,10 @@ async function rejectTicket(t) {
     // Put the condition back to what it was before the report, unless it has moved on or another report is still open.
     const a = ticketAsset(t);
     const others = tickets.some(x => x.id !== t.id && x.assetId === t.assetId && x.stage === "request");
-    const back = a && !others && a.faultStatus === "pending"
+    const back = a && isGeneral(a) && t.faultQty
+        // general asset: the reported units simply stop counting as faulty
+        ? wfAssetOps(a, { faultyQty: Math.max(0, faultyUnits(a) - t.faultQty), faultPendingQty: Math.max(0, pendingUnits(a) - t.faultQty) }, "maintenance", t.id, "rejected")
+        : a && !others && a.faultStatus === "pending"
         ? wfAssetOps(a, { condition: a.condition === "Faulty" && a.condBefore ? a.condBefore : a.condition, faultStatus: "", condBefore: "" }, "maintenance", t.id, "rejected")
         : { ops: [], changes: [] };
     try {
@@ -393,7 +432,8 @@ function openSendRepairModal(t) {
                 const errEl = root.querySelector("#sr-error");
                 if (!vendor || !date) { errEl.textContent = "Vendor name and date sent are required."; errEl.classList.remove("hidden"); return; }
                 const notes = root.querySelector("#sr-notes").value.trim();
-                const m = wfAssetOps(a, { condition: "On Repair", faultStatus: "", condBefore: "" }, "maintenance", t.id, "repairing");
+                const m = a && isGeneral(a) && t.faultQty ? { ops: [], changes: [] }   // the faulty units stay counted; the rest of the line is untouched
+                    : wfAssetOps(a, { condition: "On Repair", faultStatus: "", condBefore: "" }, "maintenance", t.id, "repairing");
                 try {
                     await commitOps([
                         { op: "update", col: "maintenance", id: t.id, data: {
@@ -423,7 +463,8 @@ function openResolveModal(t) {
             </div>
             <p class="muted small">Check every field before the asset goes back into the catalogue.</p>
             <div class="form-grid cols-3">
-                <div class="field"><label for="rs-cond">Condition / status *</label><select id="rs-cond">${condOptions("Available")}</select></div>
+                <div class="field"><label for="rs-cond">${a && isGeneral(a) && t.faultQty ? `Condition of the ${t.faultQty} unit${t.faultQty === 1 ? "" : "s"} *` : "Condition / status *"}</label><select id="rs-cond">${condOptions("Available")}</select>
+                    ${a && isGeneral(a) && t.faultQty ? `<span class="muted small">Available puts them back in stock; a retired condition removes them from the quantity.</span>` : ""}</div>
                 ${placeFields("rs", a ? dv(a.itemSpace) : "", a ? dv(a.itemLocation) : "")}
                 <div class="field"><label for="rs-serial">Serial no <span class="hint">change if replaced</span></label><input type="text" id="rs-serial" class="mono" value="${esc(a ? dv(a.serialNo) : "")}"></div>
                 <div class="field"><label for="rs-date">Date returned</label><input type="date" id="rs-date" value="${today()}"></div>
@@ -446,7 +487,15 @@ function openResolveModal(t) {
                     serialNo: root.querySelector("#rs-serial").value.trim(), remarks: root.querySelector("#rs-remarks").value.trim() || "-",
                     faultStatus: "", condBefore: ""
                 };
-                const m = wfAssetOps(a, patch, "maintenance", t.id, "closed");
+                const unit = a && isGeneral(a) && t.faultQty;
+                let m;
+                if (unit) {
+                    // the repaired units go back to available; units that are written off leave the quantity
+                    const gone = RETIRED.includes(cond) ? t.faultQty : 0;
+                    m = wfAssetOps(a, { itemSpace: patch.itemSpace, itemLocation: patch.itemLocation, remarks: patch.remarks, serialNo: patch.serialNo,
+                        faultyQty: Math.max(0, faultyUnits(a) - t.faultQty), faultPendingQty: Math.max(0, pendingUnits(a) - t.faultQty), ...(gone ? { qty: Math.max(0, units(a) - gone) } : {}) },
+                        "maintenance", t.id, "closed");
+                } else m = wfAssetOps(a, patch, "maintenance", t.id, "closed");
                 const cost = root.querySelector("#rs-cost").value.trim();
                 const summary = [notes || (fromVendor ? "Repaired" : "Fixed in-house"), cost && `cost ${cost}`, fromVendor && `Vendor: ${t.vendor}`].filter(Boolean).join(" · ");
                 try {

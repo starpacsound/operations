@@ -176,6 +176,29 @@ await t("fault report: member can't mark it confirmed", assertFails(updateDoc(do
 await t("fault report: another member can't use that report", assertFails(updateDoc(doc(as("mem2"), "inventory/spk1"), { condition: "Faulty", faultStatus: "pending", wfCol: "maintenance", wfRef: "fm1", wfStep: "request:6" })));
 await t("fault report: a verifier puts the condition back on reject", assertSucceeds(updateDoc(doc(as("verifier"), "inventory/spk1"), { condition: "Available", faultStatus: "", condBefore: "", wfCol: "maintenance", wfRef: "fm1", wfStep: "rejected:7" })));
 
+// v5.13: a fault report on a general asset names how many units are faulty.
+{
+    const b = writeBatch(mem);
+    b.set(doc(mem, "maintenance/fq1"), { stage: "request", assetId: "g1", requestedByUid: "mem", faultQty: 2 });
+    b.update(doc(mem, "inventory/g1"), { faultyQty: 2, faultPendingQty: 2, wfCol: "maintenance", wfRef: "fq1", wfStep: "request:1" });
+    await t("unit fault report: member reports 2 faulty units of a general asset", assertSucceeds(b.commit()));
+}
+{
+    const b = writeBatch(mem);
+    b.set(doc(mem, "maintenance/fq2"), { stage: "request", assetId: "g1", requestedByUid: "mem", faultQty: 1 });
+    b.update(doc(mem, "inventory/g1"), { faultyQty: 5, faultPendingQty: 5, wfCol: "maintenance", wfRef: "fq2", wfStep: "request:2" });
+    await t("unit fault report: counts must go up by exactly the report's units", assertFails(b.commit()));
+}
+{
+    const b = writeBatch(mem);
+    b.set(doc(mem, "maintenance/fq3"), { stage: "request", assetId: "g1", requestedByUid: "mem", faultQty: 100 });
+    b.update(doc(mem, "inventory/g1"), { faultyQty: 102, faultPendingQty: 102, wfCol: "maintenance", wfRef: "fq3", wfStep: "request:3" });
+    await t("unit fault report: can't report more units than the asset holds", assertFails(b.commit()));
+}
+await t("unit fault report: needs the member's own report", assertFails(updateDoc(doc(mem, "inventory/g1"), { faultyQty: 3, faultPendingQty: 3, wfCol: "maintenance", wfRef: "t2", wfStep: "request:4" })));
+await t("unit fault report: nothing else changes with it", assertFails(updateDoc(doc(mem, "inventory/g1"), { faultyQty: 4, faultPendingQty: 4, qty: 99, wfCol: "maintenance", wfRef: "fq1", wfStep: "request:5" })));
+await t("unit fault report: a verifier confirms 1 of the 2 units", assertSucceeds(updateDoc(doc(as("verifier"), "inventory/g1"), { faultyQty: 1, faultPendingQty: 0, wfCol: "maintenance", wfRef: "fq1", wfStep: "confirmed:6" })));
+
 // ---------- loans ----------
 await t("member requests a loan", assertSucceeds(setDoc(doc(mem, "loans/L9"), { status: "requested", requestedByUid: "mem", assigned: [], items: [], borrowerName: "Choir" })));
 await t("member can't create an already-out loan", assertFails(setDoc(doc(mem, "loans/L10"), { status: "collected", source: "catalogue", requestedByUid: "mem", assigned: [] })));

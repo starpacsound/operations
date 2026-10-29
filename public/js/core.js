@@ -460,16 +460,23 @@ async function updateAsset(id, patch, note) {
 // firestore.rules checks exists in the same commit.
 // faultStatus ("pending" = reported, waiting for a Co-Admin; "confirmed") and condBefore (the condition to go back to if the report is rejected)
 // are kept by the fault workflow only; they aren't shown as columns.
-const WF_FIELDS = ["condition", "qty", "itemSpace", "itemLocation", "serialNo", "remarks", "faultStatus", "condBefore"];
+// v5.13: general (bulk) assets keep how many units are faulty (faultyQty) and how many of those still await a Co-Admin (faultPendingQty);
+// their condition stays as it is, so the rest of the line remains available.
+const WF_FIELDS = ["condition", "qty", "itemSpace", "itemLocation", "serialNo", "remarks", "faultStatus", "condBefore", "faultyQty", "faultPendingQty"];
+const faultyUnits = a => isGeneral(a) ? Math.min(units(a), Math.max(0, parseInt(a.faultyQty, 10) || 0)) : 0;
+const pendingUnits = a => isGeneral(a) ? Math.min(faultyUnits(a), Math.max(0, parseInt(a.faultPendingQty, 10) || 0)) : 0;
+const usableUnits = a => units(a) - faultyUnits(a);
 const faultNote = a => a && a.condition === "Faulty" ? (a.faultStatus === "pending" ? "pending" : a.faultStatus === "confirmed" ? "confirmed" : "") : "";
 function wfAssetOps(asset, patch, col, ref, step) {
     if (!asset) return { ops: [], changes: [] };
     const clean = Object.fromEntries(Object.entries(patch).filter(([k]) => WF_FIELDS.includes(k)));
     // Any other step that changes the condition (a loan, a repair, a check) ends the fault flag.
     if (clean.condition !== undefined && clean.condition !== asset.condition && clean.faultStatus === undefined && (asset.faultStatus || asset.condBefore)) { clean.faultStatus = ""; clean.condBefore = ""; }
-    const changes = diffFields(asset, clean).filter(c => c.field !== "faultStatus" && c.field !== "condBefore");
+    const QUIET = ["faultStatus", "condBefore", "faultyQty", "faultPendingQty"];
+    const changes = diffFields(asset, clean).filter(c => !QUIET.includes(c.field));
     const data = Object.fromEntries(changes.map(c => [c.field, c.field === "remarks" && !c.to ? "-" : clean[c.field]]));
     ["faultStatus", "condBefore"].forEach(k => { if (clean[k] !== undefined && dv(asset[k]).trim() !== dv(clean[k]).trim()) data[k] = clean[k]; });
+    ["faultyQty", "faultPendingQty"].forEach(k => { if (clean[k] !== undefined && (parseInt(asset[k], 10) || 0) !== clean[k]) data[k] = clean[k]; });
     return {
         changes,
         ops: [{ op: "update", col: "inventory", id: asset.id, data: { ...data, wfCol: col, wfRef: ref, wfStep: `${step}:${Date.now()}`, ...meta() } }]

@@ -50,7 +50,7 @@ service cloud.firestore {
     // (wfCol / wfRef), that document must exist after the same commit, and the caller needs the
     // matching permission. wfStep changes on every step, so it always shows up as changed.
     function wfKeys() {
-      return ['condition', 'qty', 'itemSpace', 'itemLocation', 'serialNo', 'remarks', 'faultStatus', 'condBefore',
+      return ['condition', 'qty', 'itemSpace', 'itemLocation', 'serialNo', 'remarks', 'faultStatus', 'condBefore', 'faultyQty', 'faultPendingQty',
               'wfCol', 'wfRef', 'wfStep', 'updatedAt', 'updatedBy'];
     }
     function wfCap(col) {
@@ -84,6 +84,28 @@ service cloud.firestore {
         && getAfter(/databases/$(db)/documents/maintenance/$(d.wfRef)).data.stage == 'request'
         && getAfter(/databases/$(db)/documents/maintenance/$(d.wfRef)).data.requestedByUid == uid()
         && getAfter(/databases/$(db)/documents/maintenance/$(d.wfRef)).data.assetId == resource.id;
+    }
+
+    // v5.13: the same for a general (bulk) asset: the report names how many units (the ticket's faultQty) and the asset's
+    // faulty / awaiting-confirmation counts go up by exactly that, nothing else changes. Confirm, reject and repair
+    // are normal workflow writes (the counts are in wfKeys).
+    function isUnitFaultReport() {
+      let d = request.resource.data;
+      let ch = changed();
+      return ch.hasAll(['wfStep', 'faultyQty', 'faultPendingQty'])
+        && ch.hasOnly(['faultyQty', 'faultPendingQty', 'wfCol', 'wfRef', 'wfStep', 'updatedAt', 'updatedBy'])
+        && resource.data.get('kind', 'detailed') == 'general'
+        && d.wfCol == 'maintenance'
+        && d.faultyQty is int && d.faultPendingQty is int
+        && d.faultyQty <= d.qty
+        && can('maintenance', 'submit')
+        && canSeeCat(resource.data.category)
+        && getAfter(/databases/$(db)/documents/maintenance/$(d.wfRef)).data.stage == 'request'
+        && getAfter(/databases/$(db)/documents/maintenance/$(d.wfRef)).data.requestedByUid == uid()
+        && getAfter(/databases/$(db)/documents/maintenance/$(d.wfRef)).data.assetId == resource.id
+        && getAfter(/databases/$(db)/documents/maintenance/$(d.wfRef)).data.faultQty > 0
+        && d.faultyQty == resource.data.get('faultyQty', 0) + getAfter(/databases/$(db)/documents/maintenance/$(d.wfRef)).data.faultQty
+        && d.faultPendingQty == resource.data.get('faultPendingQty', 0) + getAfter(/databases/$(db)/documents/maintenance/$(d.wfRef)).data.faultQty;
     }
 
     // ---------- settings ----------
@@ -175,6 +197,7 @@ service cloud.firestore {
             || (request.resource.data.get('kind', 'detailed') != 'general' && can('catalogue', 'addDetailed')));
 
       allow update: if isFaultReport()
+        || isUnitFaultReport()
         || isAdmin()
         || (active() && canSeeCat(resource.data.category) && canEditCat(resource.data.category)
             && changed().hasOnly(myEditCols())

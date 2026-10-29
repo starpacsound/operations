@@ -1,4 +1,4 @@
-# Showbase / STAR Inventory - Gear, Shows & Crew (v5.3.1)
+# Showbase / STAR Inventory - Gear, Shows & Crew (v5.11)
 
 A live inventory app for a production / AV team. **Firebase Auth + Firestore** hold the data and logins,
 every change is also pushed **one-way to Google Sheets** as a backup, and the site is a static page hosted on **GitHub Pages**.
@@ -13,6 +13,60 @@ Browser (GitHub Pages)  ──read/write──▶  Firestore  (source of truth, 
 Try it with no setup: open `public/index.html?demo` (offline sample data, quick sign-in buttons, nothing is saved).
 
 ---
+
+## What's new in v5.11 - far fewer database reads, lighter log
+- Loan managers keep only OPEN loans live; finished loans load when asked (search, "Finished" filter, or the button) and are kept in the browser for 3 hours. A loan that closes while the app is open is added at once.
+- Full-timers keep the last 60 days of show sign-outs plus anything still signed out live; older ones load on request (3-hour copy). Discrepancy reviewers keep only pending reports live; finishing a check round reads just that round's reports.
+- Edits this browser saved itself are applied from memory instead of being read back (bundles.js ownTx).
+- v5.11.1: Today's two extra lists (next 7 days, next month's availability) stay on after the first visit instead of restarting every time you return to Today.
+- v5.11.2: Log History opens empty and costs no reads until "Load newest 50 entries" is pressed.
+- Settings > "Database reads on this device": estimated reads by list since the app was opened.
+- Log History keeps: asset create/import/delete, condition and location changes (not detail edits), loans, maintenance, discrepancy review, account actions. Dropped: show sign-out/in/gear lines, crew role ticks, role template edits, auto sign-out changes, finished rounds, detail edits.
+
+## What's new in v5.10 - fault reports mark the asset Faulty at once
+- A member's fault report sets the asset to Faulty straight away, tagged "Awaiting confirmation" in the Asset Catalogue. A Co-Admin's Verify & Confirm changes the tag to "Confirmed faulty"; Reject puts the previous condition back. Any later condition change (repair, loan, check) clears the tag.
+- New asset fields faultStatus and condBefore (rules: members may only set Faulty / pending together with their own report). The backup Sheet gets a "Fault status" column at the end of Inventory and Deleted Inventory (apps-script/Code.gs).
+
+## What's new in v5.9 - sort by space / location
+- Asset Catalogue sort menu: Item space A → Z / Z → A and Item location A → Z / Z → A (blanks last).
+
+## What's new in v5.8 - people list fix
+- The Admin People & Access list could save a partial copy (only the profiles the browser already held) and then never show the rest. The app now saves the people copy only from a server-confirmed answer, and copies saved before 2026-10-27 06:00 UTC are rebuilt once.
+
+## What's new in v5.7 - frozen condition bar, Equipment Loans as a list
+
+1. **Condition colour bar frozen** in Asset Catalogue: the Condition / Year bar and its coloured chips now stay with the search and filter row under the title row while you scroll. The four tiles (Fault reports, Repair vendor, Loan requests, Check discrepancies) sit in a row above and scroll away.
+2. **Equipment Loans is a list**, like the Asset Catalogue: one line per loan (equipment, borrower, collect / return dates, status and its buttons). Click a line to open the details (who requested, reason, note, exact units, progress). 
+3. **Search and filter on the Loans page**, frozen at the top: search equipment, borrower, requester, reason or unit; status filter (Requested, Return pending, Ready to collect, On loan, Overdue, Finished). Empty sections hide while you search.
+
+4. **Identical loans share one line** in Equipment Loans (same equipment, borrower, status and dates), e.g. "1 × Digico … · 7 loans · For NCC". Click it to see each loan with its own buttons. The group line also has **Return all (n)** (for the borrower) and **Receive all (n)…** (loan managers: one check-in pop-up listing every unit, close them all at once).
+5. **Phone fixes.** The top menu bar and the frozen bars now stay for the whole page on a phone (the page area was only one screen tall, so they let go after one screen of scrolling). Long Internal Asset No / Asset No / Serial No values are no longer cut off: the column widens and the table swipes sideways.
+
+Files changed: `index.html`, `css/base.css`, `css/components.css`, `js/inventory.js`, `js/loans.js`, `tests/e2e_demo.py`. No rules change. Tests: e2e 376.
+
+## What's new in v5.6 - pages remember their place, frozen top bars
+
+1. **Each page keeps its place.** Leave a page (e.g. Asset Catalogue) for another and come back: it returns to the same scroll position, with the same search, filters, open categories and "Show more" state. Refreshing the browser, or being away from that page for **more than 10 minutes** (fixed), starts it at the top again. Signing out forgets everything.
+2. **Frozen top bars on every page.** The title row with Import / Export / Edit / Add buttons, the search box and the filters stay at the top while you scroll: Asset Catalogue, Rack Layout, Inventory Check (tabs + search), Faults & Repairs (+ the repairs search), Equipment Loans, Show Sign-Out, Activity Log, My Availability (tabs + month), Show Calendar (month + tabs). On a phone the bar sits under the top menu bar, filters become one sideways-scrolling row and the sub-titles are hidden to keep it short.
+
+Files changed: `index.html`, `css/components.css`, `js/shell.js`, `js/availability.js`, `js/events.js` (no rules change). Tests: e2e 356.
+
+(v5.5 = the Co-Admin optional availability + roster order changes listed under v5.4 below.)
+
+## What's new in v5.4 - Co-Admin tools, 20 colours, repeat shows, several venues, auto sign-out
+
+1. **Admin tools for chosen Co-Admins.** People & Access now has an **Admin tools (Co-Admins only)** box with two ticks: *Edit asset conditions* and *Reset other people's passwords*. Both start **off** for every Co-Admin; the Admin ticks them per person (or on the Co-Admin template). A Co-Admin with *conditions* sees Settings with only the conditions part; with *reset* sees People & Access as a simple search-and-reset list (active people only, never Admins). Members can never get these.
+2. **20 condition colours** (9 theme colours + 11 more), with a swatch beside the picker.
+3. **Password reset by Co-Admins needs the new backup script**: paste the new `apps-script/Code.gs` into the backup Sheet's Apps Script editor (keep your own `CFG` block) and **Deploy > Manage deployments > edit > New version**.
+4. **Repeat a show / maintenance call** (Availability > Shows & manpower): *Repeat...* on a show, or inside Edit details. Every week / 2 weeks / month / day (up to 26 copies) or dates you pick. Copies have no crew booked; dates that already have the same name are skipped. **Recall:** when adding a new show or call, picking a name used before fills in its times, venue, manpower and notes - change the date or anything else.
+5. **Several venues on one show.** In the show / call editor and the booking pop-up, pick or type a venue and leave the box to add it as a chip; add as many as needed (e.g. Studio 1, Studio 2, Studio 5). Pages, the Calendar and the Shows Sheet show them combined: `Studio 1, 2, 5`, or `Studio 1-3` for three or more in a row (`Studio 1-3, 5`; other names stay separate: `Studio 1, 2, Gallery 3`). Stored as `jobs.venues` (list) plus `jobs.venue` (the combined text, so older records and Sheets keep working). Colour follows the first studio. Everything filled in by recall is editable.
+6. **Availability is optional for Co-Admins.** They stay on the roster and can be booked, and can fill in their own days if they like, but they are never listed as "not filled", never counted or reminded (Reminders panel, Today tile, their own banner/badge).
+7. **Team roster order.** Sorted by Casual ID number, lowest first (C9 before C20788); Co-Admins (full-time) right below the casuals, A-Z. Same order in the Reminders panel and Today tile.
+8. **Auto sign-out when idle.** Default 15 minutes with no taps, clicks or typing (shared across open tabs); a warning with *Stay signed in* shows for the last minute. Admin changes it (Never / 10 / 15 / 30 / 60) in **Settings > Auto sign-out** (`settings/app.idleMinutes`). Not applied while an import is running.
+
+**Upgrade:** (1) publish `firestore.rules` (no new index); (2) upload the changed files: `index.html`, `css/components.css`, `js/perms.js`, `core.js`, `shell.js`, `admin.js`, `jobs.js`, `shows.js`, `events.js`, `availability.js`, `today.js`; (3) paste the new `Code.gs` and deploy a new version; (4) tick *Admin tools* for the Co-Admins you choose.
+
+Tests: rules 243, e2e 334, bundles 22, people 15, backup 9, shows 23.
 
 ## What's new in v5.3.1 - full-time staff sign up without a Casual ID
 
@@ -375,9 +429,9 @@ Admin always has full access. Everything below is per person, starting from the 
 ## Testing
 ```bash
 npm run serve           # http://localhost:8765/?demo
-npm run test:rules      # 230 security-rule checks on the Firestore emulator (needs Java)
+npm run test:rules      # 243 security-rule checks on the Firestore emulator (needs Java)
 pip install playwright && python3 -m playwright install chromium
-npm run test:e2e        # 303 browser checks in demo mode (both themes) (needs `npm run serve` running)
+npm run test:e2e        # 376 browser checks in demo mode (both themes) (needs `npm run serve` running)
 npm run test:shows      # 23 checks of the Shows Sheet + booking emails script against a mock Sheet + Firestore
 npm run test:bundles    # 22 checks of the bundle logic (no browser needed)
 npm run test:people     # 15 checks of the people copy (no browser needed)
@@ -407,7 +461,12 @@ What is enforced where: the **database rules** enforce every permission (approva
 - Activity Log search and filters only look through the entries loaded so far (newest 50 + any you load). The PDF reads straight from the database, so it always covers the full range you pick.
 - Removing someone's login entirely is done in Firebase console → Authentication; the app can disable them instantly.
 - The Sheets backup is pushed from the browser. If a tab closes mid-send the change is retried on that browser's next visit; the optional nightly snapshot covers the rest.
-- General (bulk) items are one record: a loan or condition change applies to the whole batch. Split the batch (edit the quantity and add a second record) if part of it goes out.
+- General (bulk) items are one record: a loan or condition change applies to the whole batch. Split the batch (edit the quantity and add a second record) if part of it goes out. Faulty units are the exception (v5.13): a fault report on a bulk item names how many units are faulty, the line stays Available and shows "N available · M faulty".
 - PDF export uses standard PDF fonts, so non-Latin characters (e.g. Chinese names) are dropped from the PDF. They still show in the app and the CSV.
 - Members see shared job gear lists from the last 60 days (plus any they open from Today or the calendar). Older ones stay in the database and full-timers still see them all.
 - The installed phone app still needs internet for data; with no connection it opens but can't load or save anything. iPhone only installs from Safari.
+
+## v5.13 - faulty units of a general (bulk) asset
+- A fault report on a general asset asks "Faulty units" (1 to the units still available). The asset keeps its condition; `faultyQty` counts the faulty units and `faultPendingQty` those awaiting a Co-Admin. The catalogue shows "N available · M faulty" and "M awaiting confirmation" under the Qty.
+- Several reports can be open on one general asset at once. Confirm can take fewer units than reported (the rest go back to available); Reject takes the whole report off; Send to repair leaves the count; Fixed / Repaired puts the units back (a retired condition removes them from the quantity instead).
+- Rules: `isUnitFaultReport` lets a member raise the counts by exactly the units in their own report; the other steps are normal workflow writes (`faultyQty`, `faultPendingQty` added to `wfKeys`). Backup Sheet: `faultyQty` appended to the Inventory and Deleted Inventory columns.

@@ -35,7 +35,7 @@ function assetCell(it, col, inline) {
     if (col.key === "qty") {
         if (!isGeneral(it)) return `<td class="qty-cell muted">1</td>`;
         return `<td class="qty-cell"><input type="number" min="0" class="cell-input qty-input ${inline && !editable ? "locked" : ""}" data-id="${esc(it.id)}" data-field="qty"
-            value="${esc(it.qty)}" aria-label="Quantity" ${editable ? "" : "readonly tabindex=\"-1\""}></td>`;
+            value="${esc(it.qty)}" aria-label="Quantity" ${editable ? "" : "readonly tabindex=\"-1\""}>${unitsNote(it)}</td>`;
     }
     const cls = ["cell-input", col.strong ? "strong" : "", col.mono ? "mono" : "", inline && !editable ? "locked" : ""].join(" ");
     // v5.7: long values (asset no, serial) widen their column, so the table scrolls sideways instead of cutting them off
@@ -49,7 +49,7 @@ function assetActions(it, extra) {
     const t = openTicketFor(it.id);
     return `<td class="actions-cell">${assetTags(it)}${extra || ""}
         ${canEditAny() && canEditRow(it) ? `<button type="button" class="icon-btn" data-action="edit" data-id="${esc(it.id)}" title="Edit asset" aria-label="Edit">✎</button>` : ""}
-        ${!t && can("maintenance", "submit") ? `<button type="button" class="icon-btn" data-action="report" data-id="${esc(it.id)}" title="Log maintenance / report a fault" aria-label="Report fault">⚠</button>` : ""}
+        ${(!t || isGeneral(it)) && can("maintenance", "submit") ? `<button type="button" class="icon-btn" data-action="report" data-id="${esc(it.id)}" title="Log maintenance / report a fault" aria-label="Report fault">⚠</button>` : ""}
         ${can("catalogue", "delete") ? `<button type="button" class="icon-btn danger" data-action="delete" data-id="${esc(it.id)}" title="Delete asset" aria-label="Delete">🗑</button>` : ""}
     </td>`;
 }
@@ -329,7 +329,12 @@ function renderEditToggle() {
 // Picking "Faulty" opens the same fault report as the ⚠ button, so a maintenance ticket is made too.
 // (Not when the asset already has an open ticket, or the person can't report faults.)
 const faultTag = it => { const f = faultNote(it); return f ? `<span class="fault-tag ${f}">${f === "pending" ? "Awaiting confirmation" : "Confirmed faulty"}</span>` : ""; };
-const faultReportFirst = it => it && it.condition !== "Faulty" && can("maintenance", "submit") && !tickets.some(t => t.assetId === it.id);
+// A general (bulk) asset can have several reports at once; each names how many units are faulty.
+const unitsNote = it => {
+    const f = faultyUnits(it), p = pendingUnits(it);
+    return f ? `<div class="units-note"><span>${usableUnits(it)} available · <b>${f} faulty</b></span>${p ? `<span class="fault-tag pending">${p} awaiting confirmation</span>` : ""}</div>` : "";
+};
+const faultReportFirst = it => it && it.condition !== "Faulty" && can("maintenance", "submit") && (isGeneral(it) ? usableUnits(it) > 0 : !tickets.some(t => t.assetId === it.id));
 function openFaultFor(it) {
     openLogMaintenance(it.id, { fromFaulty: true, onClose: () => requestRender(true) });
 }

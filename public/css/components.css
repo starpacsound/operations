@@ -789,3 +789,9 @@ input[data-combo]:not([readonly]):not(:disabled) { background-image: linear-grad
 .loan-group-body { padding: .5rem .6rem .1rem 1.6rem; border-top: 1px solid var(--border-soft); background: var(--surface-2); }
 .loan-group-body .asset-group { background: var(--surface); }
 .loan-recv-h { margin: .9rem 0 .3rem; font-size: var(--fs-sm); color: var(--text); }
+
+/* v5.13: faulty units of a general asset */
+.units-note { display: flex; flex-direction: column; gap: .15rem; margin-top: .2rem; font-size: .75rem; color: var(--muted, #667); }
+.units-note b { color: var(--danger, #b3261e); }
+.fault-units { display: inline-flex; align-items: center; gap: .35rem; }
+.fault-units input { width: 4.5rem; }
