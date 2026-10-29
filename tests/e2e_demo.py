@@ -180,6 +180,13 @@ with sync_playwright() as p:
     g.locator(".year-select").nth(1).select_option(prev_year)
     page.wait_for_timeout(1000)
     page.locator("#view-catalogue .edit-toggle").click()
+    # v5.12: Edit switches itself off when you leave the page and come back
+    page.locator("#view-catalogue .edit-toggle").click()
+    g = open_group(page, "SM58")
+    check("v5.12: Edit on before leaving", not g.locator(".year-select").first.is_disabled())
+    go(page, "availability"); go(page, "catalogue")
+    g = open_group(page, "SM58")
+    check("v5.12: Edit is off again after leaving and coming back", g.locator(".year-select").first.is_disabled())
 
     # Year filter + finance view
     opts = page.locator("#filter-year option").all_inner_texts()
@@ -507,13 +514,17 @@ with sync_playwright() as p:
     page.select_option("#av-role", "CRS"); page.wait_for_timeout(100)
     check("filter roster by role", page.locator(".av-grid tbody tr").count() == 2)
     page.select_option("#av-role", ""); page.wait_for_timeout(100)
+    # the demo's withdrawn day is a few days ahead, so late in a month it falls in next month's grid
+    went_next = page.locator(".av-gc.wd").count() == 0 and page.locator("[data-av-month='1']").count() > 0
+    if went_next: page.click("[data-av-month='1']"); page.wait_for_timeout(200)
     check("withdrawn soft bookings are flagged", page.locator(".av-gc.wd").count() >= 1 and page.locator(".av-banner.warn").count() == 1)
+    if went_next: page.click("[data-av-month='0']"); page.wait_for_timeout(200)
     page.click("[data-av-month='1']")
     # a day Marcus hasn't marked and Priya is free but not booked (demo data moves with today's date)
     bday = ev(page, """(() => {
         const p = availGrid.find(d => d.uid === 'u-crew') || { avail: [], soft: [], conf: [] };
         const cells = [...document.querySelectorAll(".av-gc.st-N[data-av-book='u-member']")].map(c => c.dataset.day);
-        return cells.find(x => !(p.soft || []).includes(x) && !(p.conf || []).includes(x)) || cells[0]; })()""")
+        return cells.find(x => x >= '10' && !(p.soft || []).includes(x) && !(p.conf || []).includes(x)) || cells[0]; })()""")
     cell = page.locator(f".av-gc.st-N[data-av-book='u-member'][data-day='{bday}']"); bm = ev(page, "availMonth"); bdate = f"{bm}-{bday}"
     rec = lambda uid: ev(page, f"availGrid.find(d => d.uid === '{uid}') || {{soft: [], conf: [], avail: []}}")
     gala = lambda: ev(page, f"monthJobs.find(j => j.title === 'Gala Dinner' && j.date === '{bdate}')")

@@ -329,7 +329,8 @@ function startApp() {
     if (!appRunning && !idleOnStart()) return;
     appRunning = true;
     showScreen("app");
-    try { editMode = localStorage.getItem("sb_edit_" + authUser.uid) === "1"; } catch (e) { editMode = false; }
+    editMode = false; // v5.12: Edit always starts off, so a forgotten Edit button can't cause accidental changes
+    try { localStorage.removeItem("sb_edit_" + authUser.uid); } catch (e) { /* ignore */ }
     applyRoleVisibility();
     startData();
     store.commit([{ op: "update", col: "users", id: authUser.uid, data: { lastSeen: nowIso() } }]).catch(() => {});
@@ -526,6 +527,7 @@ function switchView(view, silent) {
     if (appRunning && currentView && currentView !== view && $("main")) viewScroll[currentView] = { y: getScrollY(), at: Date.now() };
     // Big trees are redrawn on entry anyway; don't keep thousands of hidden rows in the page.
     if (currentView !== view) ["rack", "check"].forEach(v => { if (v === currentView && v !== view && $(`${v}-container`)) $(`${v}-container`).innerHTML = ""; });
+    if (editMode && currentView !== view) { editMode = false; try { localStorage.setItem("sb_edit_" + authUser.uid, "0"); } catch (e) { /* ignore */ } renderEditToggle(); }
     currentView = view;
     syncTicks();
     syncToday();
