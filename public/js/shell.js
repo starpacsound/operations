@@ -481,12 +481,12 @@ function stopData() {
 }
 
 // Any collection changed: refresh badges and the visible view (asset tables wait while someone types).
-function dataChanged() { renderNavBadges(); requestRender(); }
+function dataChanged() { if (typeof resetSearchCache === "function") resetSearchCache(); renderNavBadges(); requestRender(); }
 
 function requestRender(force) {
     if (!profile || !appRunning) return;
     const a = document.activeElement;
-    const typingInZone = a && a.matches && a.matches(".asset-zone input:not([readonly]):not([type=checkbox])");
+    const typingInZone = a && a.matches && a.matches(".asset-zone input:not([readonly]):not([type=checkbox]), .asset-zone select.year-select:not([disabled])");
     if (!force && typingInZone) { pendingRender = true; if (currentView === "catalogue") renderOpsStrip(); return; }
     pendingRender = false;
     if (force) { cancelAnimationFrame(renderFrame); renderFrame = 0; renderView(currentView); return; }

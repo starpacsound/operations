@@ -84,9 +84,14 @@ function refreshDynamicDropdowns() {
     fillSelect("filter-location", "All spaces / locations", Array.from(spaces).sort());
 }
 
+// The searchable text of a row is built once and kept until the data changes, so each keystroke only does a text match.
+let hayCache = new WeakMap();
 function searchHay(it) {
-    return ["category", "brand", "model", "description", ...ROW_KEYS].filter(canViewCol).map(k => lc(it[k])).join("\u0001");
+    let h = hayCache.get(it);
+    if (h === undefined) { h = ["category", "brand", "model", "description", ...ROW_KEYS].filter(canViewCol).map(k => lc(it[k])).join("\u0001"); hayCache.set(it, h); }
+    return h;
 }
+const resetSearchCache = () => { hayCache = new WeakMap(); };
 
 const yearMatch = (it, y) => y === "ALL" || (y === "NONE" ? !dv(it.yearOfPurchase) : y === "FINANCE" ? needsFinance(it) : y === "NOCODE" ? noCode(it) : dv(it.yearOfPurchase) === y);
 
@@ -290,6 +295,9 @@ document.addEventListener("click", e => {
 });
 
 function handleSearch() { requestRender(true); }
+// Typing waits a moment after the last key, so a fast typist redraws the list once, not once per letter.
+let searchTimer = 0;
+function handleSearchTyping() { clearTimeout(searchTimer); searchTimer = setTimeout(handleSearch, 250); }
 
 function clearAllFilters() {
     $("search-input").value = "";
@@ -383,7 +391,7 @@ document.addEventListener("change", e => {
     if (t.classList.contains("cond-select") && !t.disabled) {
         changeCondition(t);
     } else if (t.classList.contains("year-select") && !t.disabled && inlineOn()) {
-        updateAsset(t.dataset.id, { yearOfPurchase: t.value });
+        queueYear(t);
     } else if (t.classList.contains("cell-input") && !t.readOnly && inlineOn()) {
         if (t.dataset.sent === t.value) return; // the combo-box and blur can both fire "change"
         t.dataset.sent = t.value;
@@ -394,7 +402,25 @@ document.addEventListener("change", e => {
     }
 });
 
+// Typing a year on the keyboard changes the dropdown once per digit (2 -> 20 -> 202 -> 2025). Save the year the typist lands on, not each step,
+// and keep the list from redrawing under their fingers meanwhile (shell.js requestRender holds while a year dropdown has focus).
+const yearTimers = new Map();
+function queueYear(sel) {
+    const id = sel.dataset.id;
+    clearTimeout(yearTimers.get(id));
+    yearTimers.set(id, setTimeout(() => saveYear(sel), 700));
+}
+function saveYear(sel) {
+    const id = sel.dataset.id;
+    if (!yearTimers.has(id)) return;
+    clearTimeout(yearTimers.get(id)); yearTimers.delete(id);
+    const it = assetById(id);
+    if (it && dv(it.yearOfPurchase) === sel.value) return;
+    updateAsset(id, { yearOfPurchase: sel.value });
+}
+
 document.addEventListener("focusout", e => {
+    if (e.target.classList && e.target.classList.contains("year-select")) saveYear(e.target);
     if (!pendingRender || !e.target.closest || !e.target.closest(".asset-zone")) return;
     setTimeout(() => { if (pendingRender) requestRender(); }, 0);
 });

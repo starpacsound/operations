@@ -165,8 +165,20 @@ with sync_playwright() as p:
     page.locator("#view-catalogue .edit-toggle").click()
     g = open_group(page, "SM58")
     g.locator(".year-select").nth(2).select_option("2025")
-    page.wait_for_timeout(150)
+    page.wait_for_timeout(1000)
     check("year editable with Edit on, saved", asset(page, "SM58 #3", "yearOfPurchase") == "2025")
+    # v5.11.4: typing a year on the keyboard lands on the typed year (no redraw between digits, one save)
+    ysel = g.locator(".year-select").nth(1)
+    prev_year = asset(page, "SM58 #2", "yearOfPurchase") or ""
+    ysel.focus()
+    for ch in "2023":
+        page.keyboard.press(ch)
+        page.wait_for_timeout(60)
+    page.locator("body").click(position={"x": 5, "y": 5})
+    page.wait_for_timeout(1000)
+    check("v5.11.4: typing 2023 in the year box saves 2023", asset(page, "SM58 #2", "yearOfPurchase") == "2023")
+    g.locator(".year-select").nth(1).select_option(prev_year)
+    page.wait_for_timeout(1000)
     page.locator("#view-catalogue .edit-toggle").click()
 
     # Year filter + finance view
