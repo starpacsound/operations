@@ -1410,6 +1410,15 @@ with sync_playwright() as p:
     loc.locator(".rack-sub-head", has_text="ADX 2").click(); page.wait_for_timeout(200)
     shot(page, "v514-rack")
     check("v5.14: opening a sub-group shows just that model's 8 rows", page.locator(".rack-loc[data-loc='Test Rack'] tbody tr").count() == 8)
+    # v5.15: the vendor (and dates / notes) of a job already at the repair shop can be edited
+    go(page, "maintenance"); page.wait_for_timeout(300)
+    rid = ev(page, "(tickets.find(t => t.stage === 'repairing') || {}).id")
+    check("v5.15: the demo has a job at a vendor", bool(rid))
+    page.locator(f"#repair-body [data-act=editrepair][data-id='{rid}']").click(); page.wait_for_selector("#er-form")
+    page.fill("#er-vendor", "Audio House Test"); page.fill("#er-notes", "new ref 123"); page.click("#er-form button[type=submit]"); page.wait_for_timeout(400)
+    tr = ev(page, f"tickets.find(t => t.id === {rid!r})")
+    check("v5.15: editing saves the new vendor and notes and keeps the job at the vendor", tr["vendor"] == "Audio House Test" and tr["sendNotes"] == "new ref 123" and tr["stage"] == "repairing")
+    check("v5.15: the repair list shows the new vendor and the edit is in the ticket history", "Audio House Test" in page.inner_text("#repair-body") and "Repair details edited" in tr["history"][-1]["note"])
     check("no console / page errors, no native dialogs", not errors)
     if errors:
         print("\n".join(errors[:10]))

@@ -473,3 +473,6 @@ What is enforced where: the **database rules** enforce every permission (approva
 
 ## v5.14 - model sub-groups in Rack Layout and Inventory Check
 - A rack category with more than 8 assets and at least 2 models splits into one sub-group per brand + model (e.g. Wireless > Shure ADX 2, Sennheiser EW-DX SKM-S). Each shows its count, the model's description and condition pills (or check progress), and opens on its own. Short categories stay a plain table. Expand all opens the sub-groups too.
+
+## v5.15 - edit a repair job at the vendor
+- Faults & Repairs > At the repair shop: each job has an **Edit** button (people with the Repair permission) to change the vendor name, date sent, expected return and notes. The change is written to the ticket history and the Activity Log ("Repair details edited"). No rules change: repairers could already update tickets in the repairing stage.

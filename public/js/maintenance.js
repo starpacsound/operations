@@ -125,7 +125,8 @@ function renderRepairRows() {
             <td><b>${esc(t.vendor)}</b>${t.sendNotes ? `<div class="muted small">${esc(t.sendNotes)}</div>` : ""}</td>
             <td><div class="who">${fmtDate(t.dateSent)}<span>by ${esc(t.sentBy)}</span>${t.expectedReturn ? `<span>ETA ${fmtDate(t.expectedReturn)}</span>` : ""}</div></td>
             <td><span class="days ${over ? "over" : ""}">${days}d</span></td>
-            <td>${canRepair() ? `<button type="button" class="btn btn-ok btn-sm" data-act="resolve" data-id="${esc(t.id)}">Mark Repaired</button>` : `<span class="muted small">At vendor</span>`}</td>
+            <td>${canRepair() ? `<button type="button" class="btn btn-ok btn-sm" data-act="resolve" data-id="${esc(t.id)}">Mark Repaired</button>
+                <button type="button" class="btn btn-sm" data-act="editrepair" data-id="${esc(t.id)}" title="Change the vendor, dates or notes">Edit</button>` : `<span class="muted small">At vendor</span>`}</td>
         </tr>`;
     }).join("") : `<tr><td colspan="6" class="empty-cell">${all.length ? "No repair jobs match these filters" : "Nothing at a vendor right now"}</td></tr>`;
 }
@@ -142,8 +143,8 @@ $("view-maintenance").addEventListener("click", e => {
     if (!t) return;
     const act = b.dataset.act;
     if ((act === "verify" || act === "reject") && !canVerify()) return;
-    if ((act === "send" || act === "resolve") && !canRepair()) return;
-    ({ verify: openVerifyModal, reject: rejectTicket, send: openSendRepairModal, resolve: openResolveModal })[act](t);
+    if ((act === "send" || act === "resolve" || act === "editrepair") && !canRepair()) return;
+    ({ verify: openVerifyModal, reject: rejectTicket, send: openSendRepairModal, resolve: openResolveModal, editrepair: openEditRepairModal })[act](t);
 });
 
 // ---------- 1. Log maintenance / report fault ----------
@@ -444,6 +445,46 @@ function openSendRepairModal(t) {
                     ]);
                     closeDynModal();
                     toast(`${t.assetLabel} sent to ${vendor}`);
+                } catch (er) { errEl.textContent = friendlyError(er); errEl.classList.remove("hidden"); }
+            });
+        }
+    });
+}
+
+// ---------- 3b. Edit a repair job that is already at the vendor (vendor name, dates, notes) ----------
+function openEditRepairModal(t) {
+    const a = ticketAsset(t);
+    showModal({
+        title: `Edit Repair Details · ${esc(t.assetLabel)}`, size: "sm", body: `
+        <form id="er-form" class="form-stack" novalidate>
+            <div class="field"><label for="er-vendor">Vendor name *</label>
+                <input type="text" id="er-vendor" data-combo="vendor" autocomplete="off" value="${esc(t.vendor || "")}"></div>
+            <div class="form-grid">
+                <div class="field"><label for="er-date">Date sent *</label><input type="date" id="er-date" value="${esc(String(t.dateSent || "").slice(0, 10))}"></div>
+                <div class="field"><label for="er-eta">Expected return</label><input type="date" id="er-eta" value="${esc(String(t.expectedReturn || "").slice(0, 10))}"></div>
+            </div>
+            <div class="field"><label for="er-notes">Notes / job reference</label><input type="text" id="er-notes" value="${esc(t.sendNotes || "")}"></div>
+            <p id="er-error" class="error-msg hidden"></p>
+            <div class="form-actions"><button type="button" class="btn btn-ghost" data-close>Cancel</button><button type="submit" class="btn btn-primary">Save changes</button></div>
+        </form>`,
+        onMount(root) {
+            root.querySelector("#er-form").addEventListener("submit", async e => {
+                e.preventDefault();
+                const errEl = root.querySelector("#er-error");
+                const next = { vendor: root.querySelector("#er-vendor").value.trim(), dateSent: root.querySelector("#er-date").value,
+                    expectedReturn: root.querySelector("#er-eta").value, sendNotes: root.querySelector("#er-notes").value.trim() };
+                if (!next.vendor || !next.dateSent) { errEl.textContent = "Vendor name and date sent are required."; errEl.classList.remove("hidden"); return; }
+                const was = { vendor: t.vendor || "", dateSent: String(t.dateSent || "").slice(0, 10), expectedReturn: String(t.expectedReturn || "").slice(0, 10), sendNotes: t.sendNotes || "" };
+                const changes = Object.keys(next).filter(k => next[k] !== was[k]).map(k => ({ field: k, from: was[k], to: next[k] }));
+                if (!changes.length) { closeDynModal(); return; }
+                const summary = changes.map(c => `${c.field}: ${c.from || "-"} → ${c.to || "-"}`).join(" · ");
+                try {
+                    await commitOps([
+                        { op: "update", col: "maintenance", id: t.id, data: { ...next, history: [...(t.history || []), histEntry("repairing", `Repair details edited - ${summary}`)] } },
+                        makeLog("Repair details edited", a || { label: t.assetLabel }, [], summary, { ticketId: t.id })
+                    ]);
+                    closeDynModal();
+                    toast("Repair details updated");
                 } catch (er) { errEl.textContent = friendlyError(er); errEl.classList.remove("hidden"); }
             });
         }
