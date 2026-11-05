@@ -520,6 +520,24 @@ function syncStick() {
     root.style.setProperty("--stick-h", st ? st.offsetHeight + "px" : "0px");
 }
 window.addEventListener("resize", syncStick);
+
+// v5.16 iPad: when the on-screen keyboard opens, Safari shrinks only the visible area and pans the page to the focused box, which left the
+// page and the taps out of step (a tap picked the top or bottom row). While the keyboard is up, the app is sized to the visible area,
+// the page is kept at the top, and the focused box is scrolled into view inside the page area.
+let kbWasUp = false;
+function syncViewport() {
+    const vv = window.visualViewport, root = document.documentElement;
+    if (!vv || phoneLayout()) { root.style.removeProperty("--app-h"); kbWasUp = false; return; }
+    const kb = window.innerHeight - vv.height > 120;
+    if (kb) {
+        root.style.setProperty("--app-h", vv.height + "px");
+        if (window.scrollY || vv.offsetTop) window.scrollTo(0, 0);
+        const a = document.activeElement;
+        if (!kbWasUp && a && a.closest && a.closest("#main") && /^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) setTimeout(() => { try { a.scrollIntoView({ block: "center" }); } catch (e) { /* ignore */ } }, 50);
+    } else root.style.removeProperty("--app-h");
+    kbWasUp = kb;
+}
+if (window.visualViewport) { window.visualViewport.addEventListener("resize", syncViewport); window.visualViewport.addEventListener("scroll", () => { if (kbWasUp) syncViewport(); }); }
 if (window.ResizeObserver) { try { const ro = new ResizeObserver(syncStick); document.querySelectorAll(".view .stick").forEach(el => ro.observe(el)); } catch (e) { /* ignore */ } }
 
 function switchView(view, silent) {

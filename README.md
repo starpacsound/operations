@@ -476,3 +476,8 @@ What is enforced where: the **database rules** enforce every permission (approva
 
 ## v5.15 - edit a repair job at the vendor
 - Faults & Repairs > At the repair shop: each job has an **Edit** button (people with the Repair permission) to change the vendor name, date sent, expected return and notes. The change is written to the ticket history and the Activity Log ("Repair details edited"). No rules change: repairers could already update tickets in the repairing stage.
+
+## v5.16 - iPad fixes
+- The page area no longer has top padding of its own; each page has the gap inside it (`.main > .view`), so frozen bars stick flush to the top in every browser (iPad Safari left a gap above them that content scrolled through).
+- While the on-screen keyboard is up on a wide screen (iPad), `syncViewport` in shell.js sizes the app to the visible area (`--app-h`), keeps the page at the top and scrolls the focused box into view inside the page area. Safari used to pan the page instead, which put taps out of step (top or bottom row selected).
+- Not testable without a real iPad: tested here with a 1180px-wide window and a mocked visual viewport.

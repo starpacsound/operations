@@ -739,7 +739,7 @@ input[data-combo]:not([readonly]):not(:disabled) { background-image: linear-grad
 
 /* v5.6 frozen top bar: the title row, search and filters of each page stay put while the page scrolls.
    --stick-top = height of the phone top bar (0 on a computer); --stick-h = height of the page's own frozen bar (set in shell.js). */
-:root { --stick-pad: 1.8rem; }   /* the page area's top padding on a computer: sticky offsets count from inside it */
+:root { --stick-pad: 0px; }   /* v5.16: the page area has no top padding of its own any more (each page has it inside), so frozen bars stick flush to the top */
 .stick { position: sticky; top: calc(var(--stick-top, 0px) - var(--stick-pad)); z-index: 20; background: var(--bg); padding: .45rem 0 .15rem; }
 .stick .view-head { margin-bottom: .7rem; }
 .stick .filter-bar { margin-bottom: .5rem; }
