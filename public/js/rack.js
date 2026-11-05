@@ -16,7 +16,10 @@ function curRound() {
     return open.find(r => r.id === selectedRound) || open[0];
 }
 const inVenue = (a, venue) => (dv(a.itemSpace) || UNASSIGNED) === venue && !RETIRED.includes(a.condition);
-const roundScope = r => r ? inventory.filter(a => inVenue(a, r.venue)) : [];
+// v5.17: a round covers either one venue (Item Space) or one item: a category, or a single model inside it, wherever it is stored.
+const inItemScope = (a, cat, model) => a.category === cat && (!model || subKeyOf(a) === model) && !RETIRED.includes(a.condition);
+const roundScope = r => !r ? [] : r.scopeType === "item" ? inventory.filter(a => inItemScope(a, r.category, r.model)) : inventory.filter(a => inVenue(a, r.venue));
+const itemRoundLabel = (cat, model) => `Item · ${cat}${model ? ` › ${model}` : ""}`;
 
 function rackItems(mode) {
     const q = lc($(`${mode}-search`).value).trim();
@@ -280,7 +283,7 @@ function renderRoundPicker() {
     const open = openRounds();
     const cur = curRound();
     if (!open.length) {
-        el.innerHTML = `<div class="empty-state">No check round is running.${can("check", "rounds") ? ` Use <b>Start new round</b> and pick the venue to check.` : " Ask an Admin / Co-Admin to start one for your venue."}</div>`;
+        el.innerHTML = `<div class="empty-state">No check round is running.${can("check", "rounds") ? ` Use <b>Start new round</b> and pick a venue or an item to check.` : " Ask an Admin / Co-Admin to start one for your venue."}</div>`;
         return;
     }
     el.innerHTML = `<span class="muted small">Open rounds</span>` + open.map(r => {
@@ -300,7 +303,7 @@ function renderRoundBanner() {
     const done = scope.filter(x => isChecked(x.id)).length;
     const pending = discrepancies.filter(d => d.status === "pending" && scope.some(a => a.id === d.assetId)).length;
     el.innerHTML = `
-        <div class="stat"><span>Venue</span><span class="round-name">${esc(r.venue)} · ${esc(r.name)}</span>
+        <div class="stat"><span>${r.scopeType === "item" ? "Item" : "Venue"}</span><span class="round-name">${esc(r.venue)} · ${esc(r.name)}</span>
             <span>Started ${fmtDateTime(r.startedAt)} by ${esc(r.startedByName || r.startedBy)}</span></div>
         <div class="stat"><b>${done} / ${scope.length}</b><span>records verified</span></div>
         ${progressHtml(done, scope.length)}
@@ -325,11 +328,20 @@ function startCheckRound() {
     const spaces = allSpaces();
     const openBy = new Map(openRounds().map(r => [r.venue, r]));
     const count = s => inventory.filter(a => inVenue(a, s)).length;
+    const cats = uniq(inventory.filter(a => !RETIRED.includes(a.condition)).map(a => a.category).filter(Boolean)).sort((x, y) => byNum(x, y));
+    const itemCount = (c, m) => inventory.filter(a => inItemScope(a, c, m)).length;
     const month = new Date().toLocaleDateString(undefined, { month: "long", year: "numeric" });
     showModal({
         title: "Start a new check round", size: "sm", body: `
         <form id="nr-form" class="form-stack" novalidate>
-            <div class="field"><label for="nr-venue">Venue (Item Space) *</label>
+            <div class="field"><label>Check by</label>
+                <label class="radio-row"><input type="radio" name="nr-by" value="venue" checked> A venue (Item Space) - everything stored there</label>
+                <label class="radio-row"><input type="radio" name="nr-by" value="item"> An item - a category or one model, wherever it is stored</label></div>
+            <div class="field nr-item hidden"><label for="nr-cat">Category *</label>
+                <select id="nr-cat"><option value="">Choose a category…</option>${cats.map(c => `<option value="${esc(c)}">${esc(c)} - ${plural(itemCount(c, ""), "record")}</option>`).join("")}</select></div>
+            <div class="field nr-item hidden"><label for="nr-model">Model <span class="hint">optional - leave on All to check the whole category</span></label>
+                <select id="nr-model"><option value="">All models</option></select></div>
+            <div class="field nr-venue"><label for="nr-venue">Venue (Item Space) *</label>
                 <select id="nr-venue"><option value="">Choose a venue…</option>${spaces.map(s => `<option value="${esc(s)}">${esc(s)} - ${plural(count(s), "record")}${openBy.has(s) ? " (round open)" : ""}</option>`).join("")}</select></div>
             <div class="field"><label for="nr-name">Round name *</label><input type="text" id="nr-name" value="${esc(month)} stock take"></div>
             <p class="muted small" id="nr-note" style="margin:0">Only assets in this venue are counted. Other venues can run their own rounds at the same time.</p>
@@ -337,7 +349,25 @@ function startCheckRound() {
             <div class="form-actions"><button type="button" class="btn btn-ghost" data-close>Cancel</button><button type="submit" class="btn btn-primary">Start round</button></div>
         </form>`,
         onMount(root) {
-            const venue = root.querySelector("#nr-venue");
+            const venue = root.querySelector("#nr-venue"), cat = root.querySelector("#nr-cat"), model = root.querySelector("#nr-model");
+            const byItem = () => root.querySelector("input[name=nr-by]:checked").value === "item";
+            const note = () => {
+                if (!byItem()) { venue.dispatchEvent(new Event("change")); return; }
+                const label = itemRoundLabel(cat.value || "…", model.value), r = openBy.get(label);
+                root.querySelector("#nr-note").innerHTML = r ? `<b>${esc(label)}</b> already has “${esc(r.name)}” open. Starting a new round finishes that one first and saves it to History.`
+                    : "Counts that item in every venue where it is stored. A venue round and an item round can run at the same time.";
+            };
+            root.querySelectorAll("input[name=nr-by]").forEach(i => i.addEventListener("change", () => {
+                root.querySelectorAll(".nr-item").forEach(el => el.classList.toggle("hidden", !byItem()));
+                root.querySelector(".nr-venue").classList.toggle("hidden", byItem());
+                note();
+            }));
+            cat.addEventListener("change", () => {
+                const models = uniq(inventory.filter(a => inItemScope(a, cat.value, "")).map(subKeyOf)).sort((x, y) => byNum(x, y));
+                model.innerHTML = `<option value="">All models</option>` + models.map(m => `<option value="${esc(m)}">${esc(m)} - ${plural(itemCount(cat.value, m), "record")}</option>`).join("");
+                note();
+            });
+            model.addEventListener("change", note);
             venue.addEventListener("change", () => {
                 const r = openBy.get(venue.value);
                 root.querySelector("#nr-note").innerHTML = r ? `<b>${esc(venue.value)}</b> already has “${esc(r.name)}” open. Starting a new round finishes that one first and saves it to History.`
@@ -346,16 +376,18 @@ function startCheckRound() {
             root.querySelector("#nr-form").addEventListener("submit", async e => {
                 e.preventDefault();
                 const err = m => { const p = root.querySelector("#nr-error"); p.textContent = m; p.classList.remove("hidden"); };
-                const v = venue.value, name = root.querySelector("#nr-name").value.trim();
-                if (!v) return err("Choose the venue to check.");
+                const item = byItem();
+                const v = item ? (cat.value ? itemRoundLabel(cat.value, model.value) : "") : venue.value, name = root.querySelector("#nr-name").value.trim();
+                if (!v) return err(item ? "Choose the category to check." : "Choose the venue to check.");
                 if (!name) return err("Give the round a name.");
+                const total = item ? itemCount(cat.value, model.value) : count(v);
                 try {
                     const prev = openBy.get(v);
                     if (prev) await finishRound(prev, true);
                     const id = store.newId("audits");
                     await commitOps([
-                        { op: "set", col: "audits", id, data: { name, venue: v, status: "open", shards: tickRecords(count(v)), startedBy: myEmail(), startedByName: myName(), startedAt: nowIso() } },
-                        makeLog("Check round started", { label: `${v} · ${name}` }, [], `${plural(count(v), "record")} to check`)
+                        { op: "set", col: "audits", id, data: { name, venue: v, ...(item ? { scopeType: "item", category: cat.value, model: model.value } : {}), status: "open", shards: tickRecords(total), startedBy: myEmail(), startedByName: myName(), startedAt: nowIso() } },
+                        makeLog("Check round started", { label: `${v} · ${name}` }, [], `${plural(total, "record")} to check`)
                     ]);
                     selectedRound = id;
                     checkTab = "current";
@@ -403,7 +435,7 @@ function renderCheckHistory() {
     if (!can("check", "history")) { el.innerHTML = `<div class="empty-state">You don't have access to check history.</div>`; return; }
     const list = closedRounds();
     el.innerHTML = `<div class="panel"><div class="table-scroll"><table class="data-table">
-        <thead><tr><th>Round</th><th>Venue</th><th>Started</th><th>Finished</th><th>Verified</th><th>Not found</th><th>Discrepancies</th><th></th></tr></thead>
+        <thead><tr><th>Round</th><th>Venue / item</th><th>Started</th><th>Finished</th><th>Verified</th><th>Not found</th><th>Discrepancies</th><th></th></tr></thead>
         <tbody>${list.length ? list.map(r => {
             const s = r.summary || { total: 0, checked: 0, discrepancies: 0 };
             const pct = s.total ? Math.round(s.checked * 100 / s.total) : 0;
@@ -475,7 +507,7 @@ async function buildAuditPdf(r) {
     const rep = await newReport({ title: `Inventory Check · ${r.venue}`, orientation: "portrait", meta: [
         `Round: ${r.name}`, `${pdfDate(r.startedAt)} - ${pdfDate(r.closedAt)}` ] });
     const pct = s.total ? Math.round(s.checked * 100 / s.total) : 0;
-    rep.facts([["Venue", r.venue], ["Verified", `${s.checked} / ${s.total}`], ["Completion", `${pct}%`], ["Not found", String(s.total - s.checked)], ["Discrepancies", String(s.discrepancies || 0)],
+    rep.facts([[r.scopeType === "item" ? "Item" : "Venue", r.venue], ["Verified", `${s.checked} / ${s.total}`], ["Completion", `${pct}%`], ["Not found", String(s.total - s.checked)], ["Discrepancies", String(s.discrepancies || 0)],
         ["Started", pdfDate(r.startedAt, true)], ["Started by", r.startedByName || r.startedBy], ["Finished", pdfDate(r.closedAt, true)], ["Finished by", r.closedByName || r.closedBy]]);
     const missing = (s.items || []).filter(i => !i.checked);
     if (missing.length) {

@@ -481,3 +481,6 @@ What is enforced where: the **database rules** enforce every permission (approva
 - The page area no longer has top padding of its own; each page has the gap inside it (`.main > .view`), so frozen bars stick flush to the top in every browser (iPad Safari left a gap above them that content scrolled through).
 - While the on-screen keyboard is up on a wide screen (iPad), `syncViewport` in shell.js sizes the app to the visible area (`--app-h`), keeps the page at the top and scrolls the focused box into view inside the page area. Safari used to pan the page instead, which put taps out of step (top or bottom row selected).
 - Not testable without a real iPad: tested here with a 1180px-wide window and a mocked visual viewport.
+
+## v5.17 - Inventory Check by item
+- Start new round: **Check by** a venue (as before) or an item. An item round covers one category, or one model inside it (brand + model), in every venue where it is stored; retired assets are left out. The round's `venue` field holds the label (`Item · Wireless › Shure ADX 2`) and the audit also records `scopeType: "item"`, `category` and `model`. A venue round and item rounds can be open at the same time, one open round per label. Finishing, History and the PDF work as before. No rules change (the audits rules don't limit these fields).
