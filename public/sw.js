@@ -5,7 +5,7 @@
 // never touched: live data always comes straight from Firestore.
 // Bump VERSION with each release so old saved copies are cleared.
 // =====================================================================
-const VERSION = "showbase-v5.3.0";
+const VERSION = "showbase-v5.18.0";
 
 self.addEventListener("install", e => {
     e.waitUntil(caches.open(VERSION).then(c => c.addAll(["./", "./index.html", "./manifest.webmanifest", "./icons/icon-192.png"])).catch(() => {}));

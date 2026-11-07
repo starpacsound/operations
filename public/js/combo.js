@@ -11,7 +11,7 @@
 // =====================================================================
 const Combo = (() => {
     const sources = {};
-    let pop = null, input = null, items = [], active = -1, closeTimer = null, silent = false, typed = false;
+    let pop = null, input = null, items = [], active = -1, closeTimer = null, silent = false, typed = false, typeTimer = null;
 
     const escH = s => String(s === undefined || s === null ? "" : s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
     const usable = el => el && el.matches && el.matches("input[data-combo]") && !el.readOnly && !el.disabled;
@@ -33,26 +33,36 @@ const Combo = (() => {
         });
     }
 
-    function options(inp) {
+    // v5.18: a long source (every asset, thousands of entries) is built once and reused while someone types in the same box.
+    // Rebuilding it on every letter was what made the faults / loans pickers crawl on an iPad.
+    const BIG = 200, KEEP_MS = 2500;
+    const cacheOf = new WeakMap();
+    const collator = new Intl.Collator(undefined, { numeric: true });
+    function options(inp, fresh) {
         const fn = sources[inp.dataset.combo];
         if (!fn) return [];
+        const c = cacheOf.get(inp);
+        if (!fresh && c && Date.now() - c.at < KEEP_MS) return c.res;
         const seen = new Set();
-        return (fn(inp) || []).map(o => typeof o === "string" ? { value: o } : o)
+        const res = (fn(inp) || []).map(o => typeof o === "string" ? { value: o } : o)
             .filter(o => o && String(o.value || "").trim())
             .filter(o => { const k = String(o.value).toLowerCase() + "|" + (o.group || ""); if (seen.has(k)) return false; seen.add(k); return true; });
+        if (res.length > BIG) cacheOf.set(inp, { at: Date.now(), res }); else cacheOf.delete(inp);
+        return res;
     }
 
     function render() {
         if (!input) return;
         // On click the full list shows (current value highlighted); typing filters it.
         const q = typed ? input.value.trim().toLowerCase() : "";
-        let opts = options(input);
+        let opts = options(input, !typed);
         if (q) {
             const groups = [...new Set(opts.map(o => o.group || ""))];
+            // the lower-case text of each option is worked out once and kept on it, so each letter is only a text match
             opts = opts
-                .filter(o => `${o.value} ${o.sub || ""} ${o.search || ""}`.toLowerCase().includes(q))
-                .map(o => ({ o, s: String(o.value).toLowerCase().startsWith(q) ? 0 : 1, g: groups.indexOf(o.group || "") }))
-                .sort((a, b) => a.g - b.g || a.s - b.s || String(a.o.value).localeCompare(String(b.o.value), undefined, { numeric: true }))
+                .filter(o => (o._h === undefined ? (o._h = `${o.value} ${o.sub || ""} ${o.search || ""}`.toLowerCase()) : o._h).includes(q))
+                .map(o => ({ o, s: (o._v === undefined ? (o._v = String(o.value).toLowerCase()) : o._v).startsWith(q) ? 0 : 1, g: groups.indexOf(o.group || "") }))
+                .sort((a, b) => a.g - b.g || a.s - b.s || collator.compare(String(a.o.value), String(b.o.value)))
                 .map(x => x.o);
         }
         items = opts.slice(0, 80);
@@ -117,8 +127,10 @@ const Combo = (() => {
         });
         document.addEventListener("input", e => {
             if (silent || !usable(e.target)) return;
-            if (e.target !== input || !pop || pop.hidden) open(e.target, true);
-            else { active = -1; typed = true; render(); }
+            if (e.target !== input || !pop || pop.hidden) { open(e.target, true); return; }
+            active = -1; typed = true;
+            // a fast typist redraws the list after the last letter of a burst, not after each one
+            clearTimeout(typeTimer); typeTimer = setTimeout(() => { if (input === e.target) render(); }, 70);
         });
         document.addEventListener("focusout", e => {
             const t = e.target;
