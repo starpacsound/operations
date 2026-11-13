@@ -41,7 +41,8 @@ const PERM_MODULES = [
         { key: "delete", label: "Delete assets", srv: true }
     ] },
     { key: "rack", label: "Rack Layout", features: [
-        { key: "view", label: "See the tab" }
+        { key: "view", label: "See the tab" },
+        { key: "arrange", label: "Arrange assets in racks (positions)", srv: true, hint: "On for Co-Admins unless you untick it" }
     ] },
     { key: "check", label: "Inventory Check", features: [
         { key: "view", label: "See the tab & tick assets", srv: true },

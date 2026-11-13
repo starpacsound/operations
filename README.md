@@ -14,6 +14,14 @@ Try it with no setup: open `public/index.html?demo` (offline sample data, quick 
 
 ---
 
+## What's new in v5.18 - rack positions, faster pickers, new app icon
+- **Rack Layout positions.** Each asset can have a position in its location (1 = top). The list has a **Pos** column; with Edit on, type a number to move it there (blank or 0 takes it out). A **List | Rack picture** button above each location switches to a front view of the rack (list is the default): ordered rows with the full details, first row tagged Top and last Bottom, plus an **Unplaced** list below.
+- With Edit on: ▲ ▼ arrows, **+ Below**, **Place…** (a small window: asset and position) and **Number in order** work everywhere (iPad, phone, laptop); on a laptop you can also drag a row onto another row (top half = before, bottom half = after) or onto Unplaced to take it out.
+- Who: Admins, and Co-Admins unless the new right *Rack Layout > Arrange assets in racks* is unticked. This writes only the asset's `rackPos` and is not logged. **Publish firestore.rules.**
+- New Sheet column: add `'rackPos'` after `'faultyQty'` in the two column lists in Code.gs, then press Full backup.
+- Pickers (asset search in faults, loans, etc.) no longer lag with thousands of assets.
+- App icons redrawn from THE STAR white lockup on the app's dark grey.
+
 ## What's new in v5.11 - far fewer database reads, lighter log
 - Loan managers keep only OPEN loans live; finished loans load when asked (search, "Finished" filter, or the button) and are kept in the browser for 3 hours. A loan that closes while the app is open is added at once.
 - Full-timers keep the last 60 days of show sign-outs plus anything still signed out live; older ones load on request (3-hour copy). Discrepancy reviewers keep only pending reports live; finishing a check round reads just that round's reports.

@@ -18,7 +18,8 @@
  *   Log          append-only audit trail
  *
  * It also handles one admin action: { action: 'resetPassword', idToken, uid, password }.
- * The caller must be an active Admin (checked live, not cached). The script then sets the new
+ * The caller must be an active Admin, or (v5.4) an active Co-Admin an Admin has given "Reset other
+ * people's passwords" (perm.admin.resetPw); Co-Admins can't reset Admins. Checked live, not cached. The script then sets the new
  * password through the Identity Toolkit admin API using the deploying account's own Google
  * credentials - so deploy it with the Google account that OWNS the Firebase project.
  */
@@ -47,7 +48,7 @@ const TABS = {
   asset: {
     name: 'Inventory',
     cols: ['id', 'kind', 'category', 'brand', 'model', 'description', 'internalAssetNo', 'qty', 'assetNo', 'serialNo', 'code',
-           'itemSpace', 'itemLocation', 'condition', 'yearOfPurchase', 'remarks', 'updatedAt', 'updatedBy', 'deletedAt']
+           'itemSpace', 'itemLocation', 'condition', 'yearOfPurchase', 'remarks', 'updatedAt', 'updatedBy', 'deletedAt', 'faultStatus', 'faultyQty', 'rackPos']
   },
   ticket: {
     name: 'Maintenance',
@@ -81,7 +82,7 @@ const TABS = {
   assetDeleted: {
     name: 'Deleted Inventory',
     cols: ['id', 'kind', 'category', 'brand', 'model', 'description', 'internalAssetNo', 'qty', 'assetNo', 'serialNo', 'code',
-           'itemSpace', 'itemLocation', 'condition', 'yearOfPurchase', 'remarks', 'updatedAt', 'updatedBy', 'deletedAt']
+           'itemSpace', 'itemLocation', 'condition', 'yearOfPurchase', 'remarks', 'updatedAt', 'updatedBy', 'deletedAt', 'faultStatus', 'faultyQty', 'rackPos']
   },
   log: {
     name: 'Log',
@@ -197,6 +198,11 @@ function fsGet_(path, idToken) {
 }
 const fsStr_ = (f, k) => (f && f[k] && f[k].stringValue) || '';
 const fsBool_ = (f, k) => !!(f && f[k] && f[k].booleanValue);
+// perm.<mod>.<feat> on a profile read through the REST API (nested maps).
+const fsPerm_ = (f, mod, feat) => {
+  const m = f && f.perm && f.perm.mapValue && f.perm.mapValue.fields && f.perm.mapValue.fields[mod];
+  return fsBool_(m && m.mapValue && m.mapValue.fields, feat);
+};
 
 function resetPassword_(body) {
   const uid = String(body.uid || '');
@@ -214,13 +220,17 @@ function resetPassword_(body) {
   if (!caller) throw new Error('Unknown user');
   if (!caller.emailVerified) throw new Error('Email not verified');
   const me = fsGet_('users/' + caller.localId, body.idToken);
-  if (!me || fsStr_(me, 'status') !== 'active' || fsStr_(me, 'role') !== 'Admin') throw new Error('Only Admins can reset passwords');
+  const myRole = fsStr_(me, 'role');
+  const isAdmin = myRole === 'Admin';
+  const coAdminTool = myRole === 'Co-Admin' && fsPerm_(me, 'admin', 'resetPw');
+  if (!me || fsStr_(me, 'status') !== 'active' || !(isAdmin || coAdminTool)) throw new Error('You are not allowed to reset passwords');
   if (caller.localId === uid) throw new Error('Use "Change password" for your own account');
 
   // Read the target as the admin (rules allow it). The primary admin can't be reset by others.
   const target = fsGet_('users/' + uid, body.idToken);
   if (!target) throw new Error('That person has no app profile');
   if (fsBool_(target, 'isPrimary')) throw new Error("The primary admin's password can't be reset by others");
+  if (!isAdmin && fsStr_(target, 'role') === 'Admin') throw new Error("Only Admins can reset an Admin's password");
   // The app flags the account first, so the person is forced to pick their own password at next sign-in.
   if (!fsBool_(target, 'mustChangePassword')) throw new Error('Account is not flagged for a password change');
 

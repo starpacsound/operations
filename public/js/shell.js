@@ -342,7 +342,7 @@ function applyRoleVisibility() {
     $("user-display-tag").innerHTML = `<b>${esc(myName())}</b><br>${esc(loginLabel(myEmail(), profile.displayName))}<br>${esc(profile.role)}${profile.isPrimary ? " · primary admin 👑" : ""}`;
     const show = (sel, on) => document.querySelectorAll(sel).forEach(el => el.classList.toggle("hidden", !on));
     show(".primary-only", isPrimary());
-    show(".editor-only", canEditNonCondition());
+    show(".editor-only", canEditNonCondition() || canArrange());
     show(".adder-only", can("catalogue", "addDetailed") || can("catalogue", "addGeneral"));
     show(".importer-only", can("catalogue", "import") && can("catalogue", "addDetailed"));
     show(".exporter-only", can("catalogue", "export"));

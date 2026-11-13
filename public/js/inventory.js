@@ -307,7 +307,7 @@ function clearAllFilters() {
 
 // ---------- Edit mode ----------
 function toggleEditMode() {
-    if (!canEditNonCondition()) return;
+    if (!canEditNonCondition() && !canArrange()) return;
     editMode = !editMode;
     try { localStorage.setItem("sb_edit_" + authUser.uid, editMode ? "1" : "0"); } catch (e) { /* ignore */ }
     renderEditToggle();
@@ -316,7 +316,7 @@ function toggleEditMode() {
 }
 
 function renderEditToggle() {
-    const on = inlineOn();
+    const on = editToggleOn();
     document.querySelectorAll(".edit-toggle").forEach(b => {
         b.classList.toggle("on", on);
         b.setAttribute("aria-pressed", on ? "true" : "false");

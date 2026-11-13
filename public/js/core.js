@@ -280,6 +280,10 @@ const needsFinance = a => !!dv(a.yearOfPurchase) && !dv(a.code) && !RETIRED.incl
 // Any asset still in use without a Code / AEV, whatever its purchase year.
 const noCode = a => !dv(a.code) && !RETIRED.includes(a.condition);
 const inlineOn = () => editMode && canEditNonCondition();
+// v5.18: rack positions. Admins always; a Co-Admin unless "Arrange assets in racks" is unticked for them (same rule in firestore.rules).
+const canArrange = () => isAdmin() || (isActive() && !!profile && profile.role === "Co-Admin" && ((myPerm().rack || {}).arrange !== false));
+const arrangeOn = () => editMode && canArrange();
+const editToggleOn = () => editMode && (canEditNonCondition() || canArrange());
 const roleTemplate = role => resolveTemplate(role, settings.roles);
 
 // =====================================================================

@@ -126,9 +126,10 @@ function renderTree(mode) {
         const checkCell = isCheck ? `<td class="leaf-check"><input type="checkbox" class="check-box" data-id="${esc(a.id)}" ${done ? "checked" : ""} ${canTick ? "" : "disabled"} aria-label="Verified ${esc(assetLabel(a))}"></td>` : "";
         const by = isCheck ? `<td class="check-by">${done ? `✓ ${esc(tick.byName || tick.by)} · ${fmtDateTime(tick.at)}` : ""}</td>` : "";
         const extra = isCheck && can("check", "report") && !pendingDiscFor(a.id) ? `<button type="button" class="btn btn-sm" data-action="discrepancy" data-id="${esc(a.id)}" title="Report a discrepancy for this asset">⚑ Report</button> ` : "";
-        return `<tr class="${done && isCheck ? "is-checked" : ""}">${checkCell}${cells.join("")}${by}${assetActions(a, extra)}</tr>`;
+        const posCell = isCheck ? "" : posCellHtml(a);
+        return `<tr class="${done && isCheck ? "is-checked" : ""}">${posCell}${checkCell}${cells.join("")}${by}${assetActions(a, extra)}</tr>`;
     };
-    const headRow = `<tr>${isCheck ? `<th class="leaf-check">✓</th>` : ""}${cols.map((c, i) => (i === nameCol ? `<th>Model</th>` : "") + `<th>${esc(c.label)}</th>`).join("")}${nameCol === cols.length ? "<th>Model</th>" : ""}${isCheck ? "<th>Checked</th>" : ""}<th></th></tr>`;
+    const headRow = `<tr>${isCheck ? `<th class="leaf-check">✓</th>` : `<th class="leaf-pos" title="Position in the rack: 1 is the top">Pos</th>`}${cols.map((c, i) => (i === nameCol ? `<th>Model</th>` : "") + `<th>${esc(c.label)}</th>`).join("")}${nameCol === cols.length ? "<th>Model</th>" : ""}${isCheck ? "<th>Checked</th>" : ""}<th></th></tr>`;
 
     const locCount = [...tree.values()].reduce((n, m) => n + m.size, 0);
     // Opening a location or category redraws only that location (locHtml), not the whole tree.
@@ -164,7 +165,8 @@ function locHtml(ctx, space, loc) {
             <span class="loc-meta">${plural(locItems.length, "item")} · ${plural(cats.size, "type")}</span>
             <span class="loc-right">${isCheck ? progressHtml(doneOf(locItems), locItems.length) : condMiniBar(locItems)}</span>
         </button>
-        ${lOpen ? `<div class="rack-loc-body">${sortKeys(cats).map(cat => {
+        ${lOpen && !isCheck && rackPicture.has(lKey) ? `<div class="rack-loc-body">${viewBarHtml(lKey, true)}${rackPicHtml(space, loc, locItems)}</div>`
+        : lOpen ? `<div class="rack-loc-body">${isCheck ? "" : viewBarHtml(lKey, false)}${sortKeys(cats).map(cat => {
             const cKey = `C|${space}|${loc}|${cat}`;
             const cOpen = searching || nodeOpen(mode, cKey, isCheck);
             // Only an open category needs its rows in order.
@@ -182,6 +184,156 @@ function locHtml(ctx, space, loc) {
         }).join("")}</div>` : ""}
     </div>`;
 }
+// ---------- v5.18: rack positions (1 = top). List is the default view; "Rack picture" shows the order like the real rack. ----------
+const rackPicture = new Set();   // location keys shown as a picture
+const fineMouse = () => !!(window.matchMedia && matchMedia("(pointer: fine)").matches);
+const locOf = a => [dv(a.itemSpace) || UNASSIGNED, dv(a.itemLocation) || UNASSIGNED];
+const rackOrderFor = (space, loc) => inventory
+    .filter(a => { const [s, l] = locOf(a); return s === space && l === loc && !RETIRED.includes(a.condition) && Number(a.rackPos) > 0; })
+    .sort((x, y) => Number(x.rackPos) - Number(y.rackPos) || byNum(assetLabel(x), assetLabel(y)));
+const rackPosOf = a => { const n = Number(a.rackPos); return n > 0 ? n : 0; };
+
+function posCellHtml(a) {
+    const n = rackPosOf(a);
+    if (arrangeOn()) return `<td class="leaf-pos"><input type="number" class="rack-pos-in" min="0" max="999" inputmode="numeric" value="${n || ""}" placeholder="-" data-rack-pos="${esc(a.id)}" aria-label="Rack position of ${esc(assetLabel(a))}"></td>`;
+    return `<td class="leaf-pos">${n || '<span class="muted">-</span>'}</td>`;
+}
+function viewBarHtml(lKey, pic) {
+    return `<div class="rack-viewbar"><span class="muted small">View</span>
+        <span class="seg"><button type="button" class="${pic ? "" : "on"}" data-rackview="list" data-lkey="${esc(lKey)}">List</button><button type="button" class="${pic ? "on" : ""}" data-rackview="pic" data-lkey="${esc(lKey)}">Rack picture</button></span>
+        ${pic && !arrangeOn() ? `<span class="muted small">Front view. Turn on Edit mode to change the order.</span>` : ""}</div>`;
+}
+function rackPicHtml(space, loc, shown) {
+    const ids = new Set(shown.map(a => a.id));
+    const placed = rackOrderFor(space, loc).filter(a => ids.has(a.id));
+    const unplaced = shown.filter(a => !rackPosOf(a) && !RETIRED.includes(a.condition)).sort((x, y) => byNum(assetLabel(x), assetLabel(y)));
+    const arr = arrangeOn(), drag = arr && fineMouse();
+    const row = (a, i) => {
+        const n = rackPosOf(a), tag = i === 0 ? "Top" : i === placed.length - 1 && placed.length > 1 ? "Bottom" : "";
+        const desc = dv(a.description);
+        return `<div class="rack-u" data-rack-id="${esc(a.id)}" ${drag ? 'draggable="true"' : ""}>
+            <span class="u-pos">${n}</span>
+            <span class="u-main"><b>${esc(assetLabel(a))}</b> <span class="u-model">${esc(subKeyOf(a))}</span>${desc ? ` <span class="u-desc">${esc(desc)}</span>` : ""}${tag ? ` <span class="u-tag">${tag}</span>` : ""}</span>
+            <span class="pill ${condClass(a.condition)}">${esc(COND_SHORT[a.condition] || a.condition)}</span>
+            ${arr ? `<span class="u-acts">
+                <button type="button" class="btn btn-sm" data-rackact="up" data-id="${esc(a.id)}" ${i === 0 ? "disabled" : ""} aria-label="Move up" title="Move up">▲</button>
+                <button type="button" class="btn btn-sm" data-rackact="down" data-id="${esc(a.id)}" ${i === placed.length - 1 ? "disabled" : ""} aria-label="Move down" title="Move down">▼</button>
+                <button type="button" class="btn btn-sm" data-rackact="below" data-id="${esc(a.id)}" data-space="${esc(space)}" data-loc="${esc(loc)}" title="Place another asset below this one">+ Below</button>
+                <button type="button" class="btn btn-sm" data-rackact="remove" data-id="${esc(a.id)}" aria-label="Take out of the rack picture" title="Take out (back to Unplaced)">✕</button></span>` : ""}
+        </div>`;
+    };
+    const urow = a => `<div class="rack-u is-un" data-rack-id="${esc(a.id)}" ${drag ? 'draggable="true"' : ""}>
+            <span class="u-pos">-</span><span class="u-main"><b>${esc(assetLabel(a))}</b> <span class="u-model">${esc(subKeyOf(a))}</span></span>
+            <span class="pill ${condClass(a.condition)}">${esc(COND_SHORT[a.condition] || a.condition)}</span>
+            ${arr ? `<span class="u-acts"><button type="button" class="btn btn-sm btn-primary" data-rackact="place" data-id="${esc(a.id)}" data-space="${esc(space)}" data-loc="${esc(loc)}">Place…</button></span>` : ""}</div>`;
+    return `<div class="rack-pic" data-space="${esc(space)}" data-loc="${esc(loc)}">
+        <div class="rack-frame">${placed.length ? placed.map(row).join("") : `<div class="empty-state">Nothing placed yet.${arr ? " Use Place… on an asset below, or Number in order." : ""}</div>`}</div>
+        ${unplaced.length ? `<div class="rack-unplaced" data-drop-remove="1"><div class="rack-un-head"><b>Unplaced</b> <span class="muted small">(${unplaced.length})${drag ? " - drag an asset into the rack above, or drop a rack row here to take it out" : ""}</span>
+            ${arr ? `<button type="button" class="btn btn-sm" data-rackact="number" data-space="${esc(space)}" data-loc="${esc(loc)}" title="Give every unplaced asset the next numbers, in name order">Number in order</button>` : ""}</div>
+            ${unplaced.map(urow).join("")}</div>` : ""}
+    </div>`;
+}
+// Write the final order of one location: only assets whose number changed are saved. Not logged (it is layout, not a stock change).
+async function applyRackOrder(order, removed) {
+    const ops = [];
+    order.forEach((a, i) => { if (rackPosOf(a) !== i + 1) ops.push({ op: "update", col: "inventory", id: a.id, data: { rackPos: i + 1, ...meta() } }); });
+    (removed || []).forEach(a => { if (rackPosOf(a)) ops.push({ op: "update", col: "inventory", id: a.id, data: { rackPos: 0, ...meta() } }); });
+    if (!ops.length) return;
+    try { await commitOps(ops); } catch (er) { toast(friendlyError(er), "error"); }
+}
+function rackMove(a, toIndex) { // toIndex: 0-based place in the rack, or -1 to take out
+    const [space, loc] = locOf(a);
+    const order = rackOrderFor(space, loc).filter(x => x.id !== a.id);
+    if (toIndex < 0) return applyRackOrder(order, [a]);
+    order.splice(Math.min(toIndex, order.length), 0, a);
+    return applyRackOrder(order);
+}
+function openPlaceModal(space, loc, assetId, afterId) {
+    const placed = rackOrderFor(space, loc);
+    const un = inventory.filter(a => { const [s, l] = locOf(a); return s === space && l === loc && !rackPosOf(a) && !RETIRED.includes(a.condition); }).sort((x, y) => byNum(assetLabel(x), assetLabel(y)));
+    if (!un.length) return toast("Every asset here is already placed.");
+    const posOpts = [`<option value="0">At the top</option>`].concat(placed.map(a => `<option value="${rackPosOf(a)}" ${a.id === afterId ? "selected" : ""}>After ${rackPosOf(a)} · ${esc(assetLabel(a))}</option>`));
+    showModal({ title: "Place in rack", size: "sm", body: `
+        <form id="pl-form" class="form-stack" novalidate>
+            <div class="field"><label for="pl-asset">Asset</label><select id="pl-asset">${un.map(a => `<option value="${esc(a.id)}" ${a.id === assetId ? "selected" : ""}>${esc(assetLabel(a))} · ${esc(subKeyOf(a))}</option>`).join("")}</select></div>
+            <div class="field"><label for="pl-pos">Position</label><select id="pl-pos">${posOpts.join("")}</select></div>
+            <div class="form-actions"><button type="button" class="btn btn-ghost" data-close>Cancel</button><button type="submit" class="btn btn-primary">Place</button></div>
+        </form>`,
+        onMount(root) {
+            const pos = root.querySelector("#pl-pos");
+            if (!afterId) pos.value = String(placed.length ? rackPosOf(placed[placed.length - 1]) : 0); // default: bottom
+            root.querySelector("#pl-form").addEventListener("submit", e => {
+                e.preventDefault();
+                const a = inventory.find(x => x.id === root.querySelector("#pl-asset").value);
+                const idx = Number(pos.value);
+                closeDynModal();
+                if (a) rackMove(a, idx);   // "after N" means index N (0 = top)
+            });
+        } });
+}
+document.addEventListener("click", e => {
+    const v = e.target.closest("[data-rackview]");
+    if (v) {
+        v.dataset.rackview === "pic" ? rackPicture.add(v.dataset.lkey) : rackPicture.delete(v.dataset.lkey);
+        redrawLoc("rack", v);
+        return;
+    }
+    const b = e.target.closest("[data-rackact]");
+    if (!b || !arrangeOn()) return;
+    const a = inventory.find(x => x.id === b.dataset.id), act = b.dataset.rackact;
+    if (act === "number") {
+        const space = b.dataset.space, loc = b.dataset.loc;
+        const un = inventory.filter(x => { const [s, l] = locOf(x); return s === space && l === loc && !rackPosOf(x) && !RETIRED.includes(x.condition); }).sort((x, y) => byNum(assetLabel(x), assetLabel(y)));
+        applyRackOrder([...rackOrderFor(space, loc), ...un]);
+        return;
+    }
+    if (!a) return;
+    const [space, loc] = locOf(a), idx = rackOrderFor(space, loc).findIndex(x => x.id === a.id);
+    if (act === "up" && idx > 0) rackMove(a, idx - 1);
+    else if (act === "down") rackMove(a, idx + 1);
+    else if (act === "remove") rackMove(a, -1);
+    else if (act === "place") openPlaceModal(b.dataset.space, b.dataset.loc, a.id, null);
+    else if (act === "below") openPlaceModal(b.dataset.space, b.dataset.loc, null, a.id);
+});
+// Typing a number in the Pos column moves the asset there (blank / 0 takes it out).
+document.addEventListener("change", e => {
+    const i = e.target.closest && e.target.closest("[data-rack-pos]");
+    if (!i || !arrangeOn()) return;
+    const a = inventory.find(x => x.id === i.dataset.rackPos);
+    if (!a) return;
+    const n = parseInt(i.value, 10);
+    rackMove(a, n > 0 ? n - 1 : -1);
+});
+// Drag and drop (laptop / mouse only): drop on a rack row to insert before or after it; drop on Unplaced to take out.
+let dragRackId = null;
+const dropSide = (el, ev) => { const r = el.getBoundingClientRect(); return ev.clientY < r.top + r.height / 2 ? "before" : "after"; };
+const clearOver = () => document.querySelectorAll(".rack-u.over-before,.rack-u.over-after,.rack-unplaced.over").forEach(x => x.classList.remove("over-before", "over-after", "over"));
+document.addEventListener("dragstart", e => { const r = e.target.closest && e.target.closest(".rack-u[draggable]"); if (!r || !arrangeOn()) return; dragRackId = r.dataset.rackId; e.dataTransfer.effectAllowed = "move"; try { e.dataTransfer.setData("text/plain", dragRackId); } catch (_) {} });
+document.addEventListener("dragend", () => { dragRackId = null; clearOver(); });
+document.addEventListener("dragover", e => {
+    if (!dragRackId) return;
+    const row = e.target.closest(".rack-u:not(.is-un)"), zone = e.target.closest(".rack-unplaced");
+    if (!row && !zone) return;
+    e.preventDefault(); clearOver();
+    if (row) row.classList.add("over-" + dropSide(row, e)); else zone.classList.add("over");
+});
+document.addEventListener("drop", e => {
+    if (!dragRackId) return;
+    const row = e.target.closest(".rack-u:not(.is-un)"), zone = e.target.closest(".rack-unplaced");
+    const a = inventory.find(x => x.id === dragRackId);
+    if (!a || !(row || zone)) return;
+    e.preventDefault();
+    const side = row ? dropSide(row, e) : "", target = row ? inventory.find(x => x.id === row.dataset.rackId) : null;
+    dragRackId = null; clearOver();
+    if (zone && !row) return rackMove(a, -1);
+    if (!target || target.id === a.id) return;
+    const [space, loc] = locOf(target);
+    if (locOf(a).join("|") !== [space, loc].join("|")) return toast("That asset is stored in a different location.");
+    const order = rackOrderFor(space, loc).filter(x => x.id !== a.id);
+    const ti = order.findIndex(x => x.id === target.id);
+    rackMove(a, side === "before" ? ti : ti + 1);
+});
+
 // v5.14: a long category splits into one sub-group per model (e.g. Wireless -> Shure ADX 2, Sennheiser EW-DX SKM-S), each opened on its own.
 const SUB_MIN = 8;
 const subKeyOf = a => `${dv(a.brand) === "Generic" ? "" : dv(a.brand)} ${dv(a.model)}`.trim() || "No model";

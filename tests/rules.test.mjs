@@ -55,6 +55,7 @@ await env.withSecurityRulesDisabled(async ctx => {
     await put("users/tmp", prof("tmp@x.com", "Member", { mustChangePassword: true }));
     await put("users/tmp2", prof("tmp2@x.com", "Member"));
     // v5.4 Admin tools handed to Co-Admins
+    await put("users/coNoArr", prof("conoarr@x.com", "Co-Admin", { editCols: [], perm: permWith(CO, { rack: { arrange: false } }) }));
     await put("users/coCond", prof("cocond@x.com", "Co-Admin", { perm: { ...CO, admin: { conditions: true, resetPw: false } } }));
     await put("users/coPw", prof("copw@x.com", "Co-Admin", { perm: { ...CO, avail: { view: true, edit: true, viewAll: false, book: false }, admin: { conditions: false, resetPw: true } } }));
     await put("users/memTool", prof("memtool@x.com", "Member", { perm: { ...MEM, admin: { conditions: true, resetPw: true } } }));
@@ -503,6 +504,16 @@ await t("tools: can't flag a pending sign-up", assertFails(updateDoc(doc(as("coP
 await t("tools: can't change anything else on the profile", assertFails(updateDoc(doc(as("coPw"), "users/mem3"), { mustChangePassword: true, role: "Co-Admin" })));
 await t("tools: Co-Admin without the right can't flag anyone", assertFails(updateDoc(doc(as("coCond"), "users/mem3"), { mustChangePassword: true })));
 await t("tools: a Member ticked for it can't flag anyone", assertFails(updateDoc(doc(as("memTool"), "users/mem3"), { mustChangePassword: true })));
+
+// v5.18: rack positions. A read-only Co-Admin may set only the position (unless the right is ticked off); a Member never.
+await t("rack position: read-only Co-Admin can arrange", assertSucceeds(updateDoc(doc(coRO, "inventory/spk1"), { rackPos: 3, updatedAt: "now", updatedBy: "coro@x.com" })));
+await t("rack position: take out with 0", assertSucceeds(updateDoc(doc(coRO, "inventory/spk1"), { rackPos: 0, updatedAt: "now", updatedBy: "coro@x.com" })));
+await t("rack position: nothing else may change with it", assertFails(updateDoc(doc(coRO, "inventory/spk1"), { rackPos: 3, model: "HACK", updatedAt: "now", updatedBy: "coro@x.com" })));
+await t("rack position: must be a whole number 0-999", assertFails(updateDoc(doc(coRO, "inventory/spk1"), { rackPos: 1000, updatedAt: "now", updatedBy: "coro@x.com" })));
+await t("rack position: not a negative or text", assertFails(updateDoc(doc(coRO, "inventory/spk1"), { rackPos: "top", updatedAt: "now", updatedBy: "coro@x.com" })));
+await t("rack position: right unticked, Co-Admin can't", assertFails(updateDoc(doc(as("coNoArr"), "inventory/spk1"), { rackPos: 2, updatedAt: "now", updatedBy: "conoarr@x.com" })));
+await t("rack position: a Member can't", assertFails(updateDoc(doc(mem, "inventory/spk1"), { rackPos: 2, updatedAt: "now", updatedBy: "mem@x.com" })));
+await t("rack position: Admin can", assertSucceeds(updateDoc(doc(as("primary"), "inventory/spk1"), { rackPos: 2, updatedAt: "now", updatedBy: "primary@x.com" })));
 
 await t("disabled user loses access", (async () => {
     await env.withSecurityRulesDisabled(c => updateDoc(doc(c.firestore(), "users/co"), { status: "disabled" }));
