@@ -21,11 +21,11 @@ const ROW_COLUMNS = [
     { key: "code", label: "Code / AEV", ph: "Code", mono: true },
     { key: "itemSpace", label: "Item Space", ph: "Space", combo: "space" },
     { key: "itemLocation", label: "Item Location", ph: "Location", combo: "location" },
+    { key: "designation", label: "Designation", ph: "Designation" },   // v5.19: what the unit is for (e.g. "BD 19", "Room A2"); optional
     { key: "condition", label: "Condition" },
     { key: "yearOfPurchase", label: "Year of Purchase" },
     { key: "remarks", label: "Remarks", ph: "Remarks" },
-    // v5.19: what the unit is for (e.g. "BD 19", "Room A2"), and the drawer it sits in inside a rack. Both optional.
-    { key: "designation", label: "Designation", ph: "Designation" },
+    // v5.19: the drawer an asset sits in inside a rack (optional).
     { key: "drawer", label: "Drawer", ph: "Drawer" }
 ];
 const ALL_FIELDS = [...GROUP_FIELDS, ...ROW_COLUMNS];
