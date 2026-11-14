@@ -211,7 +211,7 @@
                     <div class="stick-sub" id="cat-sticky">
                         <div id="ops-mix"></div>
                         <div class="filter-bar">
-                    <input type="search" id="search-input" class="filter-input" oninput="handleSearch()" placeholder="Search category, brand, model, asset no, serial, code, space, location…">
+                    <input type="search" id="search-input" class="filter-input" oninput="handleSearchTyping()" placeholder="Search category, brand, model, asset no, serial, code, space, location…">
                     <select id="filter-category" class="filter-select" onchange="handleSearch()"><option value="ALL">All categories</option></select>
                     <select id="filter-location" class="filter-select" onchange="handleSearch()"><option value="ALL">All spaces / locations</option></select>
                     <select id="filter-condition" class="filter-select" onchange="handleSearch()"><option value="ALL">All conditions</option></select>
@@ -503,6 +503,14 @@
                     <div class="field span2 hidden">
                         <label for="form-qty">Quantity</label>
                         <input type="number" id="form-qty" data-field="qty" min="0">
+                    </div>
+                    <div class="field">
+                        <label for="form-designation">Designation <span class="hint">optional, e.g. BD 19</span></label>
+                        <input type="text" id="form-designation" data-field="designation" maxlength="80" autocomplete="off" placeholder="What this unit is for">
+                    </div>
+                    <div class="field">
+                        <label for="form-drawer">Drawer <span class="hint">optional, if it sits in a drawer</span></label>
+                        <input type="text" id="form-drawer" data-field="drawer" maxlength="60" autocomplete="off" placeholder="e.g. Drawer 1">
                     </div>
                     <div class="field span2">
                         <label for="form-remarks">Remarks</label>

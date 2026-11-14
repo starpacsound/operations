@@ -23,7 +23,10 @@ const ROW_COLUMNS = [
     { key: "itemLocation", label: "Item Location", ph: "Location", combo: "location" },
     { key: "condition", label: "Condition" },
     { key: "yearOfPurchase", label: "Year of Purchase" },
-    { key: "remarks", label: "Remarks", ph: "Remarks" }
+    { key: "remarks", label: "Remarks", ph: "Remarks" },
+    // v5.19: what the unit is for (e.g. "BD 19", "Room A2"), and the drawer it sits in inside a rack. Both optional.
+    { key: "designation", label: "Designation", ph: "Designation" },
+    { key: "drawer", label: "Drawer", ph: "Drawer" }
 ];
 const ALL_FIELDS = [...GROUP_FIELDS, ...ROW_COLUMNS];
 const ALL_FIELD_KEYS = ALL_FIELDS.map(f => f.key);

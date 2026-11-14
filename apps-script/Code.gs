@@ -48,7 +48,7 @@ const TABS = {
   asset: {
     name: 'Inventory',
     cols: ['id', 'kind', 'category', 'brand', 'model', 'description', 'internalAssetNo', 'qty', 'assetNo', 'serialNo', 'code',
-           'itemSpace', 'itemLocation', 'condition', 'yearOfPurchase', 'remarks', 'updatedAt', 'updatedBy', 'deletedAt', 'faultStatus', 'faultyQty', 'rackPos']
+           'itemSpace', 'itemLocation', 'condition', 'yearOfPurchase', 'remarks', 'updatedAt', 'updatedBy', 'deletedAt', 'faultStatus', 'faultyQty', 'rackPos', 'designation', 'drawer']
   },
   ticket: {
     name: 'Maintenance',
@@ -82,7 +82,7 @@ const TABS = {
   assetDeleted: {
     name: 'Deleted Inventory',
     cols: ['id', 'kind', 'category', 'brand', 'model', 'description', 'internalAssetNo', 'qty', 'assetNo', 'serialNo', 'code',
-           'itemSpace', 'itemLocation', 'condition', 'yearOfPurchase', 'remarks', 'updatedAt', 'updatedBy', 'deletedAt', 'faultStatus', 'faultyQty', 'rackPos']
+           'itemSpace', 'itemLocation', 'condition', 'yearOfPurchase', 'remarks', 'updatedAt', 'updatedBy', 'deletedAt', 'faultStatus', 'faultyQty', 'rackPos', 'designation', 'drawer']
   },
   log: {
     name: 'Log',

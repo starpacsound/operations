@@ -260,7 +260,7 @@ function renderCatalogue() {
         const first = items[0];
         const open = openDrawers.has(key);
         const hasGeneral = items.some(isGeneral);
-        const cols = visibleColumns(null, hasGeneral);
+        const cols = visibleColumns(null, hasGeneral).filter(c => c.key !== "drawer"); // the drawer shows in Rack Layout, not in this wide table
         const condCounts = {};
         items.forEach(it => { condCounts[it.condition] = (condCounts[it.condition] || 0) + units(it); });
         const badges = Object.keys(condCounts).map(c =>
@@ -482,7 +482,7 @@ const FORM_IDS = {
     category: "form-category", brand: "form-brand", model: "form-model", description: "form-description",
     internalAssetNo: "form-internal-no", assetNo: "form-asset-no", serialNo: "form-serial-no", code: "form-code",
     itemSpace: "form-item-space", itemLocation: "form-item-location", condition: "form-condition",
-    yearOfPurchase: "form-year", qty: "form-qty", remarks: "form-remarks"
+    yearOfPurchase: "form-year", qty: "form-qty", remarks: "form-remarks", designation: "form-designation", drawer: "form-drawer"
 };
 const assetErr = m => { $("asset-error").textContent = m || ""; $("asset-error").classList.toggle("hidden", !m); };
 
@@ -666,13 +666,13 @@ $("form-model").addEventListener("combo:pick", () => {
 // =====================================================================
 // CSV: export, import
 // =====================================================================
-const CSV_HEADERS = ["Type", "Category", "Brand", "Model", "Description", "Code", "Serial No.", "Asset No.", "Internal Asset No.", "Quantity", "Item Space", "Item Location", "Condition", "Year of Purchase", "Remarks"];
-const CSV_FIELDS = ["kind", "category", "brand", "model", "description", "code", "serialNo", "assetNo", "internalAssetNo", "qty", "itemSpace", "itemLocation", "condition", "yearOfPurchase", "remarks"];
+const CSV_HEADERS = ["Type", "Category", "Brand", "Model", "Description", "Code", "Serial No.", "Asset No.", "Internal Asset No.", "Quantity", "Item Space", "Item Location", "Condition", "Year of Purchase", "Remarks", "Designation", "Drawer"];
+const CSV_FIELDS = ["kind", "category", "brand", "model", "description", "code", "serialNo", "assetNo", "internalAssetNo", "qty", "itemSpace", "itemLocation", "condition", "yearOfPurchase", "remarks", "designation", "drawer"];
 const HEADER_ALIASES = {
     type: "kind", kind: "kind", category: "category", brand: "brand", model: "model", modelname: "model", description: "description",
     code: "code", aev: "code", codeaev: "code", serialno: "serialNo", serial: "serialNo", assetno: "assetNo",
     internalassetno: "internalAssetNo", quantity: "qty", qty: "qty", totalqty: "qty", itemspace: "itemSpace", itemlocation: "itemLocation",
-    condition: "condition", yearofpurchase: "yearOfPurchase", year: "yearOfPurchase", purchaseyear: "yearOfPurchase", remarks: "remarks"
+    condition: "condition", yearofpurchase: "yearOfPurchase", year: "yearOfPurchase", purchaseyear: "yearOfPurchase", remarks: "remarks", designation: "designation", drawer: "drawer"
 };
 const csvCell = v => `"${String(v === undefined || v === null ? "" : v).replace(/"/g, '""')}"`;
 const csvBlob = text => new Blob(["﻿" + text], { type: "text/csv;charset=utf-8;" });
@@ -734,7 +734,7 @@ function csvRowsToItems(rows) {
             category: rec.category || "Unassigned", brand: rec.brand || (general ? "Generic" : ""), model: rec.model || "Unassigned Model",
             description: rec.description || "", code: rec.code || "", serialNo: rec.serialNo || "", assetNo: rec.assetNo || "",
             internalAssetNo: rec.internalAssetNo || (general ? `${rec.model} · bulk` : ""), itemSpace: rec.itemSpace || "", itemLocation: rec.itemLocation || "",
-            condition: cond, yearOfPurchase: year, remarks: rec.remarks || "-", ...(general ? { qty: qty > 0 ? qty : 1 } : {})
+            condition: cond, yearOfPurchase: year, remarks: rec.remarks || "-", designation: rec.designation || "", drawer: rec.drawer || "", ...(general ? { qty: qty > 0 ? qty : 1 } : {})
         });
     });
     return { items, skipped, fixedCondition };

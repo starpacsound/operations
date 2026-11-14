@@ -14,6 +14,14 @@ Try it with no setup: open `public/index.html?demo` (offline sample data, quick 
 
 ---
 
+## What's new in v5.19 - Designation and Drawer
+- **Designation** (optional text on every asset, e.g. "BD 19", "Room A2"): in the add / edit form, the catalogue, Rack Layout list, search, CSV import / export (new last columns) and the Sheet backup.
+- **Drawer** (optional text, e.g. "Drawer 1"): assets in the same rack with the same Drawer name show as ONE block in the Rack picture. The block has one position (all its items share it), moves with the arrows / drag / Place, and opens to list its items. Racks without drawer names look exactly as before.
+- In Rack Layout with Edit on, tick rows and press **Move to drawer…** (or Take out of drawer). Needs the right to edit the Drawer column.
+- New columns are in the Access settings. Admins see them at once; for existing Co-Admins / Members tick Designation and Drawer under their column access (View all / Edit all do it in one click).
+- New Sheet columns: after `'rackPos'` add `'designation', 'drawer'` in the two column lists in Code.gs, then Full backup. No rules change.
+- No new reads: both fields live on the asset record, and nothing new is listened to. Writes happen only for assets that actually change.
+
 ## What's new in v5.18 - rack positions, faster pickers, new app icon
 - **Rack Layout positions.** Each asset can have a position in its location (1 = top). The list has a **Pos** column; with Edit on, type a number to move it there (blank or 0 takes it out). A **List | Rack picture** button above each location switches to a front view of the rack (list is the default): ordered rows with the full details, first row tagged Top and last Bottom, plus an **Unplaced** list below.
 - With Edit on: ▲ ▼ arrows, **+ Below**, **Place…** (a small window: asset and position) and **Number in order** work everywhere (iPad, phone, laptop); on a laptop you can also drag a row onto another row (top half = before, bottom half = after) or onto Unplaced to take it out.
